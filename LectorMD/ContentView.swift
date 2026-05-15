@@ -269,10 +269,11 @@ struct SearchPanel: View {
 struct ContentView: View {
     let document: MarkdownDocument
     @StateObject private var searchModel = SearchModel()
+    @AppStorage("appearanceMode") private var appearanceMode: String = "system"
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
-            MarkdownWebView(markdownText: document.text, searchModel: searchModel)
+            MarkdownWebView(markdownText: document.text, searchModel: searchModel, appearanceMode: appearanceMode)
                 .frame(minWidth: 560, minHeight: 400)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(WindowFrameSaver())

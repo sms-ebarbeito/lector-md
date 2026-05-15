@@ -4,9 +4,11 @@ import WebKit
 struct MarkdownWebView: NSViewRepresentable {
     let markdownText: String
     let searchModel: SearchModel
+    let appearanceMode: String
 
     final class Coordinator: NSObject, WKScriptMessageHandler {
         var renderedText: String = ""
+        var lastAppearanceMode: String = ""
         private var diagramWindows: [NSWindow] = []
 
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
@@ -114,9 +116,21 @@ struct MarkdownWebView: NSViewRepresentable {
     }
 
     func updateNSView(_ webView: WKWebView, context: Context) {
-        guard markdownText != context.coordinator.renderedText else { return }
+        let modeChanged = appearanceMode != context.coordinator.lastAppearanceMode
+        guard markdownText != context.coordinator.renderedText || modeChanged else { return }
         context.coordinator.renderedText = markdownText
-        let html = HTMLTemplate.build(body: MarkdownRenderer().render(markdownText))
+        context.coordinator.lastAppearanceMode = appearanceMode
+        let isDark: Bool
+        switch appearanceMode {
+        case "dark":  isDark = true
+        case "light": isDark = false
+        default:      isDark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        }
+        // Sync bounce-scroll background with the HTML --bg variable
+        webView.underPageBackgroundColor = isDark
+            ? NSColor(red: 0.051, green: 0.067, blue: 0.090, alpha: 1)  // #0d1117
+            : .white
+        let html = HTMLTemplate.build(body: MarkdownRenderer().render(markdownText), isDark: isDark)
         webView.loadHTMLString(html, baseURL: Bundle.main.resourceURL)
     }
 }

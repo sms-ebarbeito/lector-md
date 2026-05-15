@@ -2,7 +2,7 @@ import Foundation
 
 enum HTMLTemplate {
 
-    static func build(body: String) -> String {
+    static func build(body: String, isDark: Bool = false) -> String {
         """
         <!DOCTYPE html>
         <html lang="es">
@@ -24,7 +24,7 @@ enum HTMLTemplate {
         mermaid.initialize({
             startOnLoad: true,
             securityLevel: 'loose',
-            theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default'
+            theme: '\(isDark ? "dark" : "default")'
         });
         (function() {
             function attachClickHandler(container) {
