@@ -8,12 +8,13 @@ struct LectorMDApp: App {
 
     var body: some Scene {
         DocumentGroup(viewing: MarkdownDocument.self) { file in
-            ContentView(document: file.document)
+            ContentView(document: file.document, fileURL: file.fileURL)
                 .onChange(of: appearanceMode) { newValue in
                     applyNSAppearance(newValue)
                 }
         }
         .commands {
+            ReloadCommands()
             CommandGroup(after: .toolbar) {
                 Divider()
                 Picker("Apariencia", selection: $appearanceMode) {
@@ -32,6 +33,18 @@ private func applyNSAppearance(_ mode: String) {
     case "light": NSApp.appearance = NSAppearance(named: .aqua)
     case "dark":  NSApp.appearance = NSAppearance(named: .darkAqua)
     default:      NSApp.appearance = nil
+    }
+}
+
+struct ReloadCommands: Commands {
+    @FocusedValue(\.reloadAction) var reloadAction
+
+    var body: some Commands {
+        CommandGroup(after: .newItem) {
+            Button("Recargar") { reloadAction?() }
+                .keyboardShortcut("r", modifiers: .command)
+                .disabled(reloadAction == nil)
+        }
     }
 }
 

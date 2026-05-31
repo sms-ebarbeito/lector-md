@@ -264,20 +264,40 @@ struct SearchPanel: View {
     }
 }
 
+// MARK: - FocusedValues
+
+extension FocusedValues {
+    struct ReloadActionKey: FocusedValueKey {
+        typealias Value = () -> Void
+    }
+    var reloadAction: (() -> Void)? {
+        get { self[ReloadActionKey.self] }
+        set { self[ReloadActionKey.self] = newValue }
+    }
+}
+
 // MARK: - Content view
 
 struct ContentView: View {
     let document: MarkdownDocument
+    let fileURL: URL?
+    @State private var currentText: String
     @StateObject private var searchModel = SearchModel()
     @AppStorage("appearanceMode") private var appearanceMode: String = "system"
 
+    init(document: MarkdownDocument, fileURL: URL?) {
+        self.document = document
+        self.fileURL = fileURL
+        _currentText = State(initialValue: document.text)
+    }
+
     var body: some View {
         ZStack(alignment: .topTrailing) {
-            MarkdownWebView(markdownText: document.text, searchModel: searchModel, appearanceMode: appearanceMode)
+            MarkdownWebView(markdownText: currentText, searchModel: searchModel, appearanceMode: appearanceMode)
                 .frame(minWidth: 560, minHeight: 400)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(WindowFrameSaver())
-                .onAppear { searchModel.loadHeadings(from: document.text) }
+                .onAppear { searchModel.loadHeadings(from: currentText) }
 
             if searchModel.isVisible {
                 SearchPanel(model: searchModel)
@@ -295,6 +315,14 @@ struct ContentView: View {
                 .keyboardShortcut("f", modifiers: .command)
                 .hidden()
         )
+        .focusedValue(\.reloadAction, reload)
+    }
+
+    private func reload() {
+        guard let fileURL,
+              let text = try? String(contentsOf: fileURL, encoding: .utf8) else { return }
+        currentText = text
+        searchModel.loadHeadings(from: text)
     }
 }
 

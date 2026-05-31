@@ -151,6 +151,7 @@ cat > "$CONTENTS/Info.plist" <<PLIST
     <key>NSPrincipalClass</key>        <string>NSApplication</string>
     <key>NSHighResolutionCapable</key> <true/>
     <key>CFBundleIconFile</key>        <string>AppIcon</string>
+    <key>LSMultipleInstancesProhibited</key> <true/>
 
     <key>CFBundleDocumentTypes</key>
     <array>
