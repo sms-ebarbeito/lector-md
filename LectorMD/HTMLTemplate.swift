@@ -336,5 +336,40 @@ enum HTMLTemplate {
         mark.lector-hit         { background-color: #5c4a00; color: #ffd54f; }
         mark.lector-hit-current { background-color: #a06000; color: #ffe082; }
     }
+
+    /* ── Print styles ────────────────────────────────────────────────────── */
+    @media print {
+        :root {
+            --bg: #ffffff !important;
+            --surface: #f6f8fa !important;
+            --border: #d0d7de !important;
+            --text: #1f2328 !important;
+            --text-muted: #656d76 !important;
+            --heading: #1f2328 !important;
+            --link: #0969da !important;
+            --code-fg: #cf222e !important;
+            --blockquote-border: #0969da !important;
+            --blockquote-fg: #656d76 !important;
+            --hr: #d0d7de !important;
+        }
+        body {
+            background: white !important;
+            color: black !important;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+        .markdown-body {
+            max-width: none !important;
+            padding: 0 !important;
+            margin: 0 !important;
+        }
+        pre, blockquote, table, img {
+            page-break-inside: avoid;
+        }
+        h1, h2, h3 {
+            page-break-after: avoid;
+        }
+        ::-webkit-scrollbar { display: none; }
+    }
     """
 }

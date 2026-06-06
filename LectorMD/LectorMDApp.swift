@@ -15,6 +15,7 @@ struct LectorMDApp: App {
         }
         .commands {
             ReloadCommands()
+            PrintCommands()
             CommandGroup(after: .toolbar) {
                 Divider()
                 Picker("Apariencia", selection: $appearanceMode) {
@@ -44,6 +45,18 @@ struct ReloadCommands: Commands {
             Button("Recargar") { reloadAction?() }
                 .keyboardShortcut("r", modifiers: .command)
                 .disabled(reloadAction == nil)
+        }
+    }
+}
+
+struct PrintCommands: Commands {
+    @FocusedValue(\.printAction) var printAction
+
+    var body: some Commands {
+        CommandGroup(after: .newItem) {
+            Button("Imprimir…") { printAction?() }
+                .keyboardShortcut("p", modifiers: .command)
+                .disabled(printAction == nil)
         }
     }
 }

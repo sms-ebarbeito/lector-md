@@ -127,6 +127,31 @@ final class SearchModel: ObservableObject {
         currentMatch = 0
         webView?.evaluateJavaScript("lectorSearch('')", completionHandler: nil)
     }
+
+    func printDocument() {
+        guard let webView else { return }
+        
+        let printInfo = NSPrintInfo()
+        printInfo.horizontalPagination = .fit
+        printInfo.isVerticallyCentered = false
+        printInfo.topMargin = 40
+        printInfo.bottomMargin = 40
+        printInfo.leftMargin = 40
+        printInfo.rightMargin = 40
+        printInfo.dictionary().setObject(NSNumber(value: true), forKey: NSPrintInfo.AttributeKey.headerAndFooter as NSString)
+        
+        let printOp = webView.printOperation(with: printInfo)
+        printOp.canSpawnSeparateThread = true
+        printOp.showsPrintPanel = true
+        
+        // Ejecutar en la ventana principal para que sea modal si es posible, 
+        // o simplemente correrlo.
+        if let window = webView.window {
+            printOp.runModal(for: window, delegate: nil, didRun: nil, contextInfo: nil)
+        } else {
+            printOp.run()
+        }
+    }
 }
 
 // MARK: - Search panel
@@ -270,9 +295,16 @@ extension FocusedValues {
     struct ReloadActionKey: FocusedValueKey {
         typealias Value = () -> Void
     }
+    struct PrintActionKey: FocusedValueKey {
+        typealias Value = () -> Void
+    }
     var reloadAction: (() -> Void)? {
         get { self[ReloadActionKey.self] }
         set { self[ReloadActionKey.self] = newValue }
+    }
+    var printAction: (() -> Void)? {
+        get { self[PrintActionKey.self] }
+        set { self[PrintActionKey.self] = newValue }
     }
 }
 
@@ -316,6 +348,7 @@ struct ContentView: View {
                 .hidden()
         )
         .focusedValue(\.reloadAction, reload)
+        .focusedValue(\.printAction, searchModel.printDocument)
     }
 
     private func reload() {
