@@ -1,4 +1,5 @@
 import Cocoa
+import CryptoKit
 import QuickLookUI
 import WebKit
 
@@ -12,6 +13,8 @@ class PreviewViewController: NSViewController, QLPreviewingController, WKNavigat
         webView = WKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = self
         webView.underPageBackgroundColor = .textBackgroundColor
+        // Force click en un link no abre la página en un popover
+        webView.allowsLinkPreview = false
         view = webView
     }
 
@@ -28,7 +31,7 @@ class PreviewViewController: NSViewController, QLPreviewingController, WKNavigat
         pendingCompletion = completionHandler
         let isDark = view.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         let html = HTMLTemplate.build(body: MarkdownRenderer().render(text), isDark: isDark,
-                                      head: Self.remoteImagesHead)
+                                      head: Self.head(isDark: isDark))
         // Resources del .appex: ahí están highlight.min.js y mermaid.min.js
         let base = Bundle(for: PreviewViewController.self).resourceURL
 
@@ -39,10 +42,16 @@ class PreviewViewController: NSViewController, QLPreviewingController, WKNavigat
             if let rules {
                 self.webView.configuration.userContentController.add(rules)
             } else {
-                // Sigue valiendo la CSP del HTML, que bloquea las imágenes remotas
-                NSLog("LectorMDQL: no se pudo compilar el bloqueo de red: %@", String(describing: error))
+                // Sigue valiendo la CSP del HTML, que también bloquea las cargas remotas
+                NSLog("LectorMDQL: no se pudo compilar el bloqueo de red: %@", error.map { "\($0)" } ?? "?")
             }
             self.webView.loadHTMLString(html, baseURL: base)
+        }
+
+        // didFinish llega en unos 300 ms; esto es por si WebKit no avisa nunca (p. ej.
+        // un script colgado sin que muera WebContent): no dejar a Quick Look con el spinner
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+            self?.finish(nil)
         }
     }
 
@@ -88,19 +97,33 @@ class PreviewViewController: NSViewController, QLPreviewingController, WKNavigat
     // 1. WKContentRuleList: WebKit bloquea toda carga http(s) y ws(s) de este WKWebView,
     //    de cualquier tipo (img, srcset, CSS, fuentes, fetch), venga del HTML o de lo
     //    que agregue Mermaid después. No depende del HTML.
-    // 2. CSP en el HTML (img-src solo file: y data:): bloquea las imágenes aunque la
-    //    lista no compile.
+    // 2. CSP en el HTML: default-src 'none' (imágenes y fuentes solo de file: y data:),
+    //    y scripts inline solo por hash, sin 'unsafe-inline'. Vale aunque la lista no
+    //    compile, y evita que un atributo que venga del .md ejecute JS: desde JS hay
+    //    caminos de red que la lista no cubre.
     private static let networkRules = """
         [{"trigger": {"url-filter": "^https?:"}, "action": {"type": "block"}},
          {"trigger": {"url-filter": "^wss?:"}, "action": {"type": "block"}}]
         """
+
+    // Los hashes salen del template con el body vacío: nada del .md queda permitido
+    private static func head(isDark: Bool) -> String {
+        let shell = HTMLTemplate.build(body: "", isDark: isDark, head: remoteImagesHead)
+        let scripts = try! NSRegularExpression(pattern: "<script>([\\s\\S]*?)</script>")
+        let hashes = scripts.matches(in: shell, range: NSRange(shell.startIndex..., in: shell)).map {
+            let code = (shell as NSString).substring(with: $0.range(at: 1))
+            return "'sha256-\(Data(SHA256.hash(data: Data(code.utf8))).base64EncodedString())'"
+        }
+        let csp = "default-src 'none'; script-src file: \(hashes.joined(separator: " ")); "
+            + "style-src 'unsafe-inline'; img-src file: data:; font-src file: data:"
+        return "\n<meta http-equiv=\"Content-Security-Policy\" content=\"\(csp)\">" + remoteImagesHead
+    }
 
     // El JS solo cambia cómo se ve: cada <img> remota (ya bloqueada) pasa a ser un
     // recuadro con su alt o su dominio, y arriba aparece un aviso. Escucha los errores
     // de carga desde el <head>, así también agarra las <img> que agrega Mermaid.
     private static let remoteImagesHead = #"""
 
-        <meta http-equiv="Content-Security-Policy" content="img-src file: data:">
         <style>
         .lector-aviso-remoto {
             font-size: 12px; color: var(--text-muted); background: var(--surface);
