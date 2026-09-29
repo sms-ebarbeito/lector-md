@@ -1,9 +1,11 @@
+import CryptoKit
 import Foundation
 
 enum HTMLTemplate {
 
-    // `head` va al principio del <head>, antes que cualquier contenido: ahí la
-    // Vista Rápida pone su Content-Security-Policy. La app no lo usa.
+    // `head` va al principio del <head>, antes que cualquier contenido: ahí van la
+    // Content-Security-Policy (`appHead` en la app, la suya en la Vista Rápida) y lo que
+    // la Vista Rápida agrega para las imágenes remotas.
     static func build(body: String, isDark: Bool = false, head: String = "") -> String {
         """
         <!DOCTYPE html>
@@ -23,9 +25,12 @@ enum HTMLTemplate {
         <script>hljs.highlightAll();</script>
         <script src="mermaid.min.js"></script>
         <script>
+        // 'strict' (el default de Mermaid): sanea el SVG entero y los links de los
+        // diagramas, y apaga `click … call`, que con 'loose' llama a cualquier función
+        // global (p. ej. el puente diagramClick) desde el .md
         mermaid.initialize({
             startOnLoad: true,
-            securityLevel: 'loose',
+            securityLevel: 'strict',
             theme: '\(isDark ? "dark" : "default")'
         });
         (function() {
@@ -134,6 +139,109 @@ enum HTMLTemplate {
         </script>
         </body>
         </html>
+        """
+    }
+
+    // MARK: - Content-Security-Policy (#5)
+
+    // CSP de la app. A diferencia de la Vista Rápida, la app muestra imágenes remotas
+    static func appHead(isDark: Bool) -> String {
+        contentSecurityPolicy(isDark: isDark, imgSrc: "https: http: data: file:")
+    }
+
+    // `<meta>` con la CSP, para pasar en `head`, seguido de `extraHead`. Scripts: los del
+    // bundle (file:) y los inline solo por hash. Los hashes salen del template con el body
+    // vacío (más `extraHead`), así nada que venga del .md queda permitido. Sin
+    // 'unsafe-inline' ni 'unsafe-eval': Mermaid y highlight.js no los necesitan. Un
+    // <script> inline con atributos (salvo src) no se detecta, así que no correría.
+    static func contentSecurityPolicy(isDark: Bool, imgSrc: String, extraHead: String = "") -> String {
+        let hashes = inlineScriptHashes(build(body: "", isDark: isDark, head: extraHead))
+        let csp = "default-src 'none'; script-src file: \(hashes.joined(separator: " ")); "
+            + "style-src 'unsafe-inline'; img-src \(imgSrc); font-src file: data:; "
+            + "object-src 'none'; base-uri 'none'; form-action 'none'"
+        return cspMeta(csp) + extraHead
+    }
+
+    static func inlineScriptHashes(_ html: String) -> [String] {
+        let scripts = try! NSRegularExpression(pattern: "<script>([\\s\\S]*?)</script>")
+        return scripts.matches(in: html, range: NSRange(html.startIndex..., in: html)).map {
+            let code = (html as NSString).substring(with: $0.range(at: 1))
+            return "'sha256-\(Data(SHA256.hash(data: Data(code.utf8))).base64EncodedString())'"
+        }
+    }
+
+    private static func cspMeta(_ policy: String) -> String {
+        "\n<meta http-equiv=\"Content-Security-Policy\" content=\"\(policy)\">"
+    }
+
+    // MARK: - Ventana del diagrama
+
+    // El SVG llega por el puente diagramClick, ya validado (`HTMLSafety.isSafeDiagramSVG`).
+    // La CSP solo deja correr el script de búsqueda de esta página, por hash: aunque el SVG
+    // trajera un <script>, un handler on* o un link javascript:, no se ejecuta. La barra y
+    // su script van antes del SVG, así nada del SVG cambia cómo se parsean.
+    static func diagramPage(svg: String) -> String {
+        let hashes = inlineScriptHashes(diagramHTML(svg: "", head: ""))
+        let csp = "default-src 'none'; script-src \(hashes.joined(separator: " ")); "
+            + "style-src 'unsafe-inline'; img-src https: http: data:; font-src data:; "
+            + "object-src 'none'; base-uri 'none'; form-action 'none'"
+        return diagramHTML(svg: svg, head: cspMeta(csp))
+    }
+
+    private static func diagramHTML(svg: String, head: String) -> String {
+        """
+        <!DOCTYPE html><html><head><meta charset="utf-8">\(head)
+        <style>
+        *{box-sizing:border-box;margin:0;padding:0}
+        body{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:32px;background:#ffffff}
+        @media(prefers-color-scheme:dark){body{background:#0d1117}}
+        svg{max-width:100%;height:auto}
+        #lector-bar{display:none;position:fixed;top:12px;right:12px;z-index:9999;align-items:center;gap:6px;padding:8px 10px;border-radius:10px;background:rgba(255,255,255,0.88);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);box-shadow:-2px 4px 14px rgba(0,0,0,0.22);font-family:-apple-system,sans-serif;font-size:14px}
+        @media(prefers-color-scheme:dark){#lector-bar{background:rgba(28,28,28,0.90);color:#e0e0e0}}
+        #lector-q{border:none;outline:none;background:transparent;font-size:14px;width:190px;color:inherit}
+        #lector-q::placeholder{color:#999}
+        .lector-btn{border:none;background:none;cursor:pointer;padding:0;font-size:16px;line-height:1;opacity:.65}
+        .lector-btn:hover{opacity:1}
+        #lector-info{font-size:11px;color:#999;min-width:16px;text-align:center}
+        </style>
+        </head><body>
+        <div id="lector-bar">
+          <button class="lector-btn" id="lector-find" title="Buscar (Enter)">⌕</button>
+          <input id="lector-q" type="text" placeholder="Buscar en el diagrama…">
+          <span id="lector-info"></span>
+          <button class="lector-btn" id="lector-close" title="Cerrar (Esc)">✕</button>
+        </div>
+        <script>
+        document.addEventListener('keydown',function(e){
+          if((e.metaKey||e.ctrlKey)&&e.key==='f'){e.preventDefault();lectorToggle();}
+          if(e.key==='Escape'){lectorClose();}
+        });
+        document.getElementById('lector-find').addEventListener('click',lectorFind);
+        document.getElementById('lector-close').addEventListener('click',lectorClose);
+        document.getElementById('lector-q').addEventListener('keydown',function(e){if(e.key==='Enter')lectorFind();});
+        document.getElementById('lector-q').addEventListener('input',function(){if(this.value.length>=3)lectorFind();});
+        function lectorToggle(){
+          var bar=document.getElementById('lector-bar');
+          var open=bar.style.display==='flex';
+          bar.style.display=open?'none':'flex';
+          if(!open){document.getElementById('lector-q').focus();}
+          else{window.getSelection().removeAllRanges();}
+        }
+        function lectorFind(){
+          var q=document.getElementById('lector-q').value;
+          var info=document.getElementById('lector-info');
+          if(!q){info.textContent='';return;}
+          var found=window.find(q,false,false,true);
+          info.textContent=found?'':'✕';
+        }
+        function lectorClose(){
+          document.getElementById('lector-bar').style.display='none';
+          document.getElementById('lector-info').textContent='';
+          window.getSelection().removeAllRanges();
+        }
+        </script>
+        \(svg)
+        </body></html>
         """
     }
 

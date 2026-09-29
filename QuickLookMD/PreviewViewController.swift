@@ -1,5 +1,4 @@
 import Cocoa
-import CryptoKit
 import QuickLookUI
 import WebKit
 
@@ -106,17 +105,10 @@ class PreviewViewController: NSViewController, QLPreviewingController, WKNavigat
          {"trigger": {"url-filter": "^wss?:"}, "action": {"type": "block"}}]
         """
 
-    // Los hashes salen del template con el body vacío: nada del .md queda permitido
+    // La misma CSP que la app (hashes del template con el body vacío, así nada del .md queda
+    // permitido), pero con imágenes solo de file: y data:
     private static func head(isDark: Bool) -> String {
-        let shell = HTMLTemplate.build(body: "", isDark: isDark, head: remoteImagesHead)
-        let scripts = try! NSRegularExpression(pattern: "<script>([\\s\\S]*?)</script>")
-        let hashes = scripts.matches(in: shell, range: NSRange(shell.startIndex..., in: shell)).map {
-            let code = (shell as NSString).substring(with: $0.range(at: 1))
-            return "'sha256-\(Data(SHA256.hash(data: Data(code.utf8))).base64EncodedString())'"
-        }
-        let csp = "default-src 'none'; script-src file: \(hashes.joined(separator: " ")); "
-            + "style-src 'unsafe-inline'; img-src file: data:; font-src file: data:"
-        return "\n<meta http-equiv=\"Content-Security-Policy\" content=\"\(csp)\">" + remoteImagesHead
+        HTMLTemplate.contentSecurityPolicy(isDark: isDark, imgSrc: "file: data:", extraHead: remoteImagesHead)
     }
 
     // El JS solo cambia cómo se ve: cada <img> remota (ya bloqueada) pasa a ser un
