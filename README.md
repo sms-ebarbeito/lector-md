@@ -46,11 +46,19 @@ La app trae una extensión de Vista Rápida (`LectorMDQL.appex`, extension point
 `com.apple.quicklook.preview`) que muestra el `.md` renderizado igual que la app:
 Mermaid, resaltado de código y modo oscuro.
 
+**Sin imágenes remotas.** La vista previa no pide nada a internet, como Mail con los
+correos. Si no, con solo seleccionar un `.md` y apretar espacio, el servidor de cada
+imagen se enteraría de tu IP, de la hora y de que miraste ese archivo. En lugar de
+cada imagen `http(s)` aparece un recuadro con su texto alternativo (o el dominio), y
+arriba el aviso *"Imágenes remotas bloqueadas · abrí el archivo en LectorMD para
+verlas"*. Las imágenes embebidas (`data:`) se ven. La app carga todo, como siempre.
+
 `build.sh` la firma aparte, **antes** que la app y sin `--deep`:
 
 - **La extensión** corre con App Sandbox (`QuickLookMD/LectorMDQL.entitlements`).
   Tiene también `com.apple.security.network.client`: sin eso, WKWebView no arranca
-  dentro del sandbox, aunque todo el contenido sea local.
+  dentro del sandbox, aunque todo el contenido sea local. Igual, la vista previa
+  bloquea toda carga remota (ver arriba).
 - **La app** sigue sin sandbox.
 - **Identidad:** si en el llavero hay un certificado **"Apple Development"** (el
   gratuito de cualquier Apple ID, no hace falta la cuenta paga), lo usa. Si no hay,

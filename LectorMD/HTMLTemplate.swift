@@ -2,12 +2,14 @@ import Foundation
 
 enum HTMLTemplate {
 
-    static func build(body: String, isDark: Bool = false) -> String {
+    // `head` va al principio del <head>, antes que cualquier contenido: ahí la
+    // Vista Rápida pone su Content-Security-Policy. La app no lo usa.
+    static func build(body: String, isDark: Bool = false, head: String = "") -> String {
         """
         <!DOCTYPE html>
         <html lang="es">
         <head>
-        <meta charset="utf-8">
+        <meta charset="utf-8">\(head)
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <style>
         \(css)
