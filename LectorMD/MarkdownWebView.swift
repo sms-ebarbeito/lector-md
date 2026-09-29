@@ -95,9 +95,13 @@ struct MarkdownWebView: NSViewRepresentable {
         webView.underPageBackgroundColor = isDark
             ? NSColor(red: 0.051, green: 0.067, blue: 0.090, alpha: 1)  // #0d1117
             : .white
-        let html = HTMLTemplate.build(body: MarkdownRenderer().render(markdownText), isDark: isDark,
-                                      head: HTMLTemplate.appHead(isDark: isDark))
-        webView.loadHTMLString(html, baseURL: Bundle.main.resourceURL)
+        webView.loadHTMLString(Self.html(for: markdownText, isDark: isDark), baseURL: Bundle.main.resourceURL)
+    }
+
+    // El documento completo, con la CSP de la app. Aparte para que lo usen los tests
+    static func html(for markdown: String, isDark: Bool) -> String {
+        HTMLTemplate.build(body: MarkdownRenderer().render(markdown), isDark: isDark,
+                           head: HTMLTemplate.appHead(isDark: isDark))
     }
 }
 

@@ -123,6 +123,9 @@ ni en la app ni en la Vista Rápida:
 - **Diagramas**: Mermaid corre en modo `strict`, y la ventana del diagrama solo acepta un
   SVG sin scripts ni handlers y lo muestra con su propia CSP.
 
+Un link a una página web, si lo seguís, abre esa página dentro del visor (como siempre):
+es una página que elegiste abrir, no algo que ejecuta el `.md`.
+
 `Tests/ataque.md` junta todos los intentos de inyección; `bash test.sh` lo verifica.
 
 ## Estructura

@@ -29,8 +29,7 @@ class PreviewViewController: NSViewController, QLPreviewingController, WKNavigat
         }
         pendingCompletion = completionHandler
         let isDark = view.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-        let html = HTMLTemplate.build(body: MarkdownRenderer().render(text), isDark: isDark,
-                                      head: Self.head(isDark: isDark))
+        let html = Self.html(for: text, isDark: isDark)
         // Resources del .appex: ahí están highlight.min.js y mermaid.min.js
         let base = Bundle(for: PreviewViewController.self).resourceURL
 
@@ -104,6 +103,11 @@ class PreviewViewController: NSViewController, QLPreviewingController, WKNavigat
         [{"trigger": {"url-filter": "^https?:"}, "action": {"type": "block"}},
          {"trigger": {"url-filter": "^wss?:"}, "action": {"type": "block"}}]
         """
+
+    // El documento completo. Aparte para que lo usen los tests
+    static func html(for markdown: String, isDark: Bool) -> String {
+        HTMLTemplate.build(body: MarkdownRenderer().render(markdown), isDark: isDark, head: head(isDark: isDark))
+    }
 
     // La misma CSP que la app (hashes del template con el body vacío, así nada del .md queda
     // permitido), pero con imágenes solo de file: y data:

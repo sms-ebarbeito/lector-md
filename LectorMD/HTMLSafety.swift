@@ -159,7 +159,9 @@ enum HTMLSafety {
                     // Mermaid solo escapa & en una URL (&amp;). Cualquier otra referencia
                     // (&#106;avascript:, &colon;…) se rechaza en vez de decodificarla
                     if value.replacingOccurrences(of: "&amp;", with: "").contains("&") { return false }
-                    if !isSafeURL(value.replacingOccurrences(of: "&amp;", with: "&"), allowDataImage: true) { return false }
+                    // data:image/ solo donde se carga una imagen, no en un link ni en un <use>
+                    let loadsImage = name == "src" || tag == "image" || tag == "feimage"
+                    if !isSafeURL(value.replacingOccurrences(of: "&amp;", with: "&"), allowDataImage: loadsImage) { return false }
                 }
             }
             // <style> y <title> son texto crudo si el navegador los lee como HTML (p. ej.

@@ -4,11 +4,12 @@ import WebKit
 
 // Tests de seguridad del #5. Se corren con `bash test.sh`.
 // 1. Escape: salidas exactas del renderer, esquemas de URL y el validador del puente.
-// 2. WebKit de verdad: el .md de ataque con la CSP de la app no ejecuta nada (un servidor
-//    propio en 127.0.0.1 anota cada pedido y no tiene que recibir ningún /xss-…), un
-//    documento normal anda igual (Mermaid, resaltado, búsqueda, anclas, imágenes remotas,
-//    clic en el diagrama) y la ventana del diagrama tampoco ejecuta nada. Cada prueba de
-//    CSP tiene su control: el mismo HTML sin CSP sí dispara los pedidos.
+// 2. WebKit de verdad, con el HTML que arman la app y la Vista Rápida: el .md de ataque no
+//    ejecuta nada (un servidor propio en 127.0.0.1 anota cada pedido y no tiene que recibir
+//    ningún /xss-…), ni siquiera sin CSP; un documento normal anda igual (Mermaid, resaltado,
+//    búsqueda, anclas, imágenes remotas, clic en el diagrama) y la ventana del diagrama
+//    tampoco ejecuta nada. Cada prueba de CSP tiene su control: el mismo HTML sin CSP sí
+//    dispara los pedidos.
 
 var passed = 0
 var failed = 0
@@ -104,6 +105,7 @@ func rendererTests() {
     expect("![a](data:text/html,x)", "<p>![a](data:text/html,x)</p>\n", "data:text/html en src queda como texto")
     expect("![a](data:image/png;base64,iVBO)", "<p><img src=\"data:image/png;base64,iVBO\" alt=\"a\"></p>\n",
            "data:image en src se ve")
+    expect(#"![a](b.png "t'q")"#, "<p><img src=\"b.png\" alt=\"a\" title=\"t&#39;q\"></p>\n", "title de imagen entre comillas dobles")
 
     expect(#"[a](https://x.com "t'q")"#, "<p><a href=\"https://x.com\" title=\"t&#39;q\">a</a></p>\n",
            "title de link entre comillas dobles")
@@ -123,6 +125,10 @@ func rendererTests() {
     expect("[a](https://x.com/a_b_c)", "<p><a href=\"https://x.com/a_b_c\">a</a></p>\n",
            "_ en la URL no se vuelve <em>")
     expect("[a](https://x.com/it's)", "<p><a href=\"https://x.com/it&#39;s\">a</a></p>\n", "comilla simple en href")
+    expect(#"[a](https://x.com/?q="hola")"#, "<p><a href=\"https://x.com/?q=&quot;hola&quot;\">a</a></p>\n",
+           "comilla doble en href (sin espacio antes)")
+    expect("[a](../otro archivo.md)", "<p><a href=\"../otro archivo.md\">a</a></p>\n", "href con espacios")
+    expect("[a](http://[::1]:8080/)", "<p><a href=\"http://[::1]:8080/\">a</a></p>\n", "href con [ ] (IPv6)")
     expect("[**a**](#fin)", "<p><a href=\"#fin\"><strong>a</strong></a></p>\n", "énfasis en el texto de un link")
     expect("[![CI](https://b.svg)](https://ci)", "<p><a href=\"https://ci\"><img src=\"https://b.svg\" alt=\"CI\"></a></p>\n",
            "imagen dentro de un link (badge)")
@@ -142,6 +148,9 @@ func rendererTests() {
            "<pre><code class=\"language-swift\">let a = \"&lt;b&gt;\"</code></pre>\n",
            "lenguaje: la primera palabra")
     expect("```mermaid\nA-->B<script>\n```", "<div class=\"mermaid\">A--&gt;B&lt;script&gt;</div>\n", "Mermaid: texto escapado")
+    expect("```mermaid título\nA-->B\n```", "<div class=\"mermaid\">A--&gt;B</div>\n", "Mermaid: el lenguaje es la primera palabra")
+    expect(">cita sin espacio\n> y con espacio", "<blockquote>\n<p>cita sin espacio\ny con espacio</p>\n</blockquote>\n",
+           ">texto sin espacio es una cita (antes colgaba el renderer)")
 
     expect("<img src=x onerror=alert(1)>", "<p>&lt;img src=x onerror=alert(1)&gt;</p>\n", "HTML crudo: <img>")
     expect("<script>alert(1)</script>", "<p>&lt;script&gt;alert(1)&lt;/script&gt;</p>\n", "HTML crudo: <script>")
@@ -152,6 +161,16 @@ func rendererTests() {
     expectContains("| a |\n|---|\n| ![x\" onerror=\"y](z.png) |", "<td><img src=\"z.png\" alt=\"x&quot; onerror=&quot;y\"></td>",
                    "alt en una celda de tabla")
     expectContains("| a |\n|---|\n| <img src=x onerror=y> |", "<td>&lt;img src=x onerror=y&gt;</td>", "HTML crudo en una tabla")
+
+    // Una línea armada no puede trabar el renderer (corre en el main thread)
+    for (md, name) in [("[a](x" + String(repeating: " ", count: 64_000) + "y", "[a](x + 64.000 espacios + y"),
+                       (String(repeating: "[a](b ", count: 16_000), "[a](b  repetido 16.000 veces"),
+                       (String(repeating: "![a](b ", count: 16_000), "![a](b  repetido 16.000 veces")] {
+        let start = Date()
+        _ = r.render(md)
+        let seconds = Date().timeIntervalSince(start)
+        check(seconds < 1, "rendimiento: \(name)", String(format: "tardó %.2f s", seconds))
+    }
 }
 
 // MARK: - Puente diagramClick
@@ -164,6 +183,7 @@ func diagramSVGTests() {
         #"<svg><a xlink:href="https://example.com/?a=1&amp;b=2"><text>x</text></a></svg>"#,
         #"<svg><foreignObject><div xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel"><p>A<br>B</p></span></div></foreignObject></svg>"#,
         #"<svg><foreignObject><div><img src="https://example.com/a.png"></div></foreignObject></svg>"#,
+        #"<svg><image href="data:image/png;base64,iVBO"/><foreignObject><img src="data:image/png;base64,iVBO"></foreignObject></svg>"#,
     ]
     for svg in ok { check(HTMLSafety.isSafeDiagramSVG(svg), "acepta: \(svg.prefix(70))") }
 
@@ -183,6 +203,8 @@ func diagramSVGTests() {
         #"<svg><!-- x --></svg>"#,
         #"<svg></svg><meta http-equiv="refresh" content="0;url=https://x"><svg></svg>"#,
         #"<svg><set attributeName="href" to="javascript:alert(1)"/></svg>"#,
+        #"<svg><a href="data:image/svg+xml,%3Csvg onload=alert(1)%3E"><text>x</text></a></svg>"#,
+        #"<svg><use href="data:image/svg+xml,%3Csvg%3E%3C/svg%3E#x"/></svg>"#,
         #"<svg></ <x a="><img src=x onerror=alert(1)>"></svg>"#,
         #"<svg><foreignObject><style><x a="</style><img title=">" onerror=alert(1)>"></style></foreignObject></svg>"#,
         "<svg>" + String(repeating: "a", count: HTMLSafety.maxDiagramSVGBytes) + "</svg>",
@@ -204,10 +226,9 @@ func webKitTests(root: URL) {
         let text = (try? String(contentsOf: root.appendingPathComponent("Tests/\(name)"), encoding: .utf8)) ?? ""
         return text.replacingOccurrences(of: "127.0.0.1:8765", with: "127.0.0.1:\(port)")
     }
-    // Igual que MarkdownWebView.updateNSView
-    func appHTML(_ md: String) -> String {
-        HTMLTemplate.build(body: MarkdownRenderer().render(md), isDark: false, head: HTMLTemplate.appHead(isDark: false))
-    }
+    // El mismo HTML que cargan la app (MarkdownWebView.updateNSView) y la Vista Rápida
+    func appHTML(_ md: String) -> String { MarkdownWebView.html(for: md, isDark: false) }
+    func quickLookHTML(_ md: String, isDark: Bool = false) -> String { PreviewViewController.html(for: md, isDark: isDark) }
     func xss(since start: Int) -> [String] { server.paths.dropFirst(start).filter { $0.contains("/xss-") } }
 
     // CSP de la app
@@ -217,6 +238,9 @@ func webKitTests(root: URL) {
           && head.contains("base-uri 'none'") && !head.contains("unsafe-eval")
           && !head.contains("script-src file: 'unsafe-inline'"),
           "CSP de la app: scripts por hash, imágenes remotas, object-src y base-uri 'none'", head)
+    check(appHTML("# x").contains(head), "la app carga su documento con esa CSP")
+    check(quickLookHTML("# x").contains("Content-Security-Policy") && quickLookHTML("# x").contains("img-src file: data:;"),
+          "la Vista Rápida carga su documento con su CSP (sin imágenes remotas)")
 
     // Documento normal: todo anda con la CSP, y la CSP no bloquea nada
     var start = server.paths.count
@@ -264,6 +288,33 @@ func webKitTests(root: URL) {
           "ataque: al puente solo llegan SVG de Mermaid, y los acepta (ningún click … call)",
           "mensajes: \(attack.messages.map { String($0.prefix(120)) })")
     check(server.paths.dropFirst(start).contains("/legitima.png"), "ataque: la imagen remota legítima se pide")
+
+    // El renderer solo alcanza: el .md de ataque sin ninguna CSP tampoco ejecuta nada
+    start = server.paths.count
+    let rendererOnly = Page(html: HTMLTemplate.build(body: MarkdownRenderer().render(markdown("ataque.md"))),
+                            baseURL: resources, bridge: false)
+    rendererOnly.provoke()
+    spin(2)
+    check(xss(since: start).isEmpty, "ataque sin CSP: el escape del renderer solo ya alcanza", "recibió: \(xss(since: start))")
+
+    // Vista Rápida (sin su WKContentRuleList: acá se prueba solo su CSP), claro y oscuro
+    for dark in [false, true] {
+        let mode = dark ? "oscuro" : "claro"
+        start = server.paths.count
+        let qlNormal = Page(html: quickLookHTML(markdown("normal.md"), isDark: dark), baseURL: resources, bridge: false)
+        check(qlNormal.waitFor("!!document.querySelector('.mermaid svg')"), "Vista Rápida (\(mode)): Mermaid dibuja el diagrama")
+        check(qlNormal.evaluate("document.querySelectorAll('pre code.hljs .hljs-keyword').length") as? Int ?? 0 > 0,
+              "Vista Rápida (\(mode)): highlight.js resalta el código")
+        check(qlNormal.waitFor("!!document.querySelector('.lector-aviso-remoto')"),
+              "Vista Rápida (\(mode)): la imagen remota pasa a ser un recuadro, con el aviso")
+        check(qlNormal.violations.allSatisfy { $0.hasPrefix("img-src") },
+              "Vista Rápida (\(mode)): la única violación de CSP es la imagen remota", "\(qlNormal.violations)")
+        let qlAttack = Page(html: quickLookHTML(markdown("ataque.md"), isDark: dark), baseURL: resources, bridge: false)
+        qlAttack.provoke()
+        spin(2)
+        check(server.paths.dropFirst(start).isEmpty, "Vista Rápida (\(mode)): el servidor no recibe nada",
+              "recibió: \(Array(server.paths.dropFirst(start)))")
+    }
 
     // Control: HTML crudo metido en el body, salteando el renderer. Con la CSP no corre nada;
     // sin la CSP sí (así se ve que la prueba detecta la ejecución)

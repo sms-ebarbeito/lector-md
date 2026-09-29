@@ -26,6 +26,7 @@ swiftc \
   -framework SwiftUI \
   -framework AppKit \
   -framework WebKit \
+  -framework QuickLookUI \
   Tests/SecurityTests.swift \
   LectorMD/MarkdownDocument.swift \
   LectorMD/ContentView.swift \
@@ -33,6 +34,7 @@ swiftc \
   LectorMD/MarkdownRenderer.swift \
   LectorMD/HTMLTemplate.swift \
   LectorMD/HTMLSafety.swift \
+  QuickLookMD/PreviewViewController.swift \
   -o "$OUT/LectorMDTests"
 
 "$OUT/LectorMDTests" "$(pwd)"

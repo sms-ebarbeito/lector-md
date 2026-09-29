@@ -32,14 +32,14 @@ struct MarkdownRenderer {
                     codeLines.append(lines[i]); i += 1
                 }
                 if i < lines.count { i += 1 }
-                if lang.lowercased() == "mermaid" {
+                // Como en CommonMark, el lenguaje es la primera palabra de la línea
+                let name = lang.split(whereSeparator: { $0 == " " || $0 == "\t" }).first.map(String.init) ?? ""
+                if name.lowercased() == "mermaid" {
                     // Escapado como texto: mermaid lee el textContent, que queda igual al original
                     let safe = HTMLSafety.escapeText(codeLines.joined(separator: "\n"))
                     out += "<div class=\"mermaid\">\(safe)</div>\n"
                 } else {
                     let code = HTMLSafety.escapeText(codeLines.joined(separator: "\n"))
-                    // Como en CommonMark, el lenguaje es la primera palabra de la línea
-                    let name = lang.split(whereSeparator: { $0 == " " || $0 == "\t" }).first.map(String.init) ?? ""
                     let cls = name.isEmpty ? "" : " class=\"language-\(HTMLSafety.escapeAttribute(name))\""
                     out += "<pre><code\(cls)>\(code)</code></pre>\n"
                 }
@@ -78,8 +78,13 @@ struct MarkdownRenderer {
                 var quoteLines: [String] = []
                 while i < lines.count {
                     let t = lines[i].trimmingCharacters(in: .whitespaces)
-                    if t.hasPrefix("> ") { quoteLines.append(String(t.dropFirst(2))); i += 1 }
-                    else if t == ">" { quoteLines.append(""); i += 1 }
+                    if t.hasPrefix(">") {
+                        // "> texto" y ">texto": se saca el ">" y un espacio, si hay. Antes ">texto"
+                        // no se consumía y el while de afuera no terminaba nunca
+                        var rest = t.dropFirst()
+                        if rest.hasPrefix(" ") { rest = rest.dropFirst() }
+                        quoteLines.append(String(rest)); i += 1
+                    }
                     else if t.isEmpty && i + 1 < lines.count && lines[i + 1].trimmingCharacters(in: .whitespaces).hasPrefix(">") {
                         quoteLines.append(""); i += 1
                     } else { break }
@@ -239,12 +244,16 @@ struct MarkdownRenderer {
     }
 
     private static let sentinelPattern = "\u{E000}([0-9]+)\u{E001}"
-    // ![alt](src "title") y [texto](href 'title'). El destino no puede tener " ni ) ni un
-    // sentinel (un code span no forma parte de una URL); el title va entre " o '
-    private static let imagePattern =
-        #"!\[([^\]]*)\]\(\s*([^\s)"\x{E000}][^)"\x{E000}]*?)(?:\s+(?:"([^"]*)"|'([^']*)'))?\s*\)"#
-    private static let linkPattern =
-        #"\[([^\]]+)\]\(\s*([^\s)"\x{E000}][^)"\x{E000}]*?)(?:\s+(?:"([^"]*)"|'([^']*)'))?\s*\)"#
+    // (destino "title") de ![alt](…) y [texto](…). El destino son palabras separadas por
+    // espacios, sin ")" ni un sentinel (un code span no forma parte de una URL). Después de
+    // un espacio, una palabra que empieza con " o ' es el title, y las demás no llevan "[":
+    // así un "[x](" más adelante en la línea no alarga el destino. Todo posesivo, sin
+    // backtracking: lineal aunque la línea tenga miles de espacios.
+    private static let destinationPattern =
+        #"\(\s*+([^\s)\x{E000}]++(?:\s++[^\s)"'\[\x{E000}][^\s)\[\x{E000}]*+)*+)"#
+        + #"(?:\s++(?:"([^"]*+)"|'([^']*+)'))?\s*+\)"#
+    private static let imagePattern = #"!\[([^\]]*+)\]"# + destinationPattern
+    private static let linkPattern = #"\[([^\]]++)\]"# + destinationPattern
 
     // MARK: - Table rendering
 
