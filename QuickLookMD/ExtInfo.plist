@@ -4,6 +4,8 @@
 <dict>
     <key>CFBundleDevelopmentRegion</key>
     <string>en</string>
+    <key>CFBundleDisplayName</key>
+    <string>LectorMD</string>
     <key>CFBundleExecutable</key>
     <string>LectorMDQL</string>
     <key>CFBundleIdentifier</key>
@@ -18,17 +20,25 @@
     <string>1.0</string>
     <key>CFBundleVersion</key>
     <string>1</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>13.0</string>
     <key>NSExtension</key>
     <dict>
         <key>NSExtensionPointIdentifier</key>
-        <string>com.apple.quicklook-ui-extension</string>
+        <string>com.apple.quicklook.preview</string>
         <key>NSExtensionPrincipalClass</key>
         <string>PreviewViewController</string>
         <key>NSExtensionAttributes</key>
         <dict>
+            <key>QLIsDataBasedPreview</key>
+            <false/>
             <key>QLSupportedContentTypes</key>
             <array>
+                <!-- .md y .markdown (UTI declarado por el sistema) -->
                 <string>net.daringfireball.markdown</string>
+                <!-- .mdown y .mkd: macOS no les asigna UTI propio, usa estos dinámicos -->
+                <string>dyn.ah62d4rv4ge8043dts71a</string>
+                <string>dyn.ah62d4rv4ge80445e</string>
             </array>
             <key>QLSupportsSearchableItems</key>
             <false/>

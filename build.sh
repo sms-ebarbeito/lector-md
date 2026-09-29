@@ -64,7 +64,7 @@ cp "$CACHED_ICNS" "$RESOURCES/AppIcon.icns"
 cp LectorMD/Resources/mermaid.min.js "$RESOURCES/"
 cp LectorMD/Resources/highlight.min.js "$RESOURCES/"
 
-# ── Quick Look UI Extension (.appex) ─────────────────────────────────────────
+# ── Quick Look Preview Extension (.appex) ────────────────────────────────────
 log "Compilando Quick Look Extension..."
 swiftc \
   -sdk "$SDK" \
@@ -74,6 +74,7 @@ swiftc \
   -framework Cocoa \
   -framework QuickLookUI \
   -framework WebKit \
+  -application-extension \
   -Xlinker -e -Xlinker _NSExtensionMain \
   QuickLookMD/PreviewViewController.swift \
   LectorMD/MarkdownRenderer.swift \
@@ -83,38 +84,10 @@ swiftc \
 cp LectorMD/Resources/highlight.min.js "$QL_RESOURCES/"
 cp LectorMD/Resources/mermaid.min.js   "$QL_RESOURCES/"
 
-cat > "$QL_BUNDLE/Contents/Info.plist" <<QLPLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>CFBundleDevelopmentRegion</key>  <string>en</string>
-    <key>CFBundleExecutable</key>         <string>${QL_NAME}</string>
-    <key>CFBundleIdentifier</key>         <string>${QL_BUNDLE_ID}</string>
-    <key>CFBundleInfoDictionaryVersion</key> <string>6.0</string>
-    <key>CFBundleName</key>               <string>${QL_NAME}</string>
-    <key>CFBundlePackageType</key>        <string>XPC!</string>
-    <key>CFBundleShortVersionString</key> <string>${VERSION}</string>
-    <key>CFBundleVersion</key>            <string>1</string>
-    <key>NSExtension</key>
-    <dict>
-        <key>NSExtensionPointIdentifier</key>
-        <string>com.apple.quicklook-ui-extension</string>
-        <key>NSExtensionPrincipalClass</key>
-        <string>PreviewViewController</string>
-        <key>NSExtensionAttributes</key>
-        <dict>
-            <key>QLSupportedContentTypes</key>
-            <array>
-                <string>net.daringfireball.markdown</string>
-            </array>
-            <key>QLSupportsSearchableItems</key>
-            <false/>
-        </dict>
-    </dict>
-</dict>
-</plist>
-QLPLIST
+# Info.plist del .appex: una sola fuente (también la usa el proyecto Xcode)
+cp QuickLookMD/ExtInfo.plist "$QL_BUNDLE/Contents/Info.plist"
+plutil -replace CFBundleShortVersionString -string "$VERSION" "$QL_BUNDLE/Contents/Info.plist"
+plutil -replace LSMinimumSystemVersion -string "$MACOS_MIN" "$QL_BUNDLE/Contents/Info.plist"
 
 # ── 3. compilar Swift ─────────────────────────────────────────────────────────
 log "Compilando (target: $TARGET)..."
@@ -196,30 +169,74 @@ PLIST
 # PkgInfo requerido por macOS
 printf 'APPL????' > "$CONTENTS/PkgInfo"
 
-# ── 4. firma ad-hoc (sin sandbox — WKWebView no arranca con sandbox + firma ad-hoc) ──
-log "Firmando (ad-hoc, sin sandbox)..."
-codesign --force --deep --sign - "$APP" 2>&1 | grep -v "^$" || true
+# ── 4. firma, de adentro hacia afuera (sin --deep) ───────────────────────────
+# Identidad: SIGN_IDENTITY del entorno; si no, el certificado "Apple Development"
+# del llavero (el gratuito de cualquier Apple ID); si no hay, ad-hoc.
+if [ -z "${SIGN_IDENTITY:-}" ]; then
+    SIGN_IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null \
+        | awk '/"Apple Development: / { print $2; exit }')
+    if [ -z "$SIGN_IDENTITY" ]; then
+        SIGN_IDENTITY="-"
+        warn "No hay certificado \"Apple Development\" en el llavero."
+        warn "Para crearlo (gratis, con cualquier Apple ID): Xcode → Settings → Accounts →"
+        warn "(tu Apple ID) → Manage Certificates → + → Apple Development."
+    fi
+fi
+if [ "$SIGN_IDENTITY" = "-" ]; then
+    warn "Firmando ad-hoc (sin TeamIdentifier). Si más adelante firmás con un certificado,"
+    warn "macOS va a pedir una vez que confirmes el cambio de firma de la extensión."
+else
+    log "Identidad de firma: $(security find-identity -v -p codesigning | grep -F "$SIGN_IDENTITY" | sed -E 's/.*"(.*)"/\1/' | head -1)"
+fi
 
-# ── 5. registrar con Launch Services (app + QL generator) ────────────────────
-log "Registrando con Launch Services..."
-LS_REGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
-"$LS_REGISTER" -f "$APP" 2>/dev/null || warn "lsregister falló (el doble click puede requerir reinstalación manual)"
+# La extensión de Vista Rápida tiene que correr con App Sandbox (si no, PlugInKit no la carga)
+log "Firmando extensión Quick Look (con sandbox)..."
+codesign --force --timestamp=none --sign "$SIGN_IDENTITY" \
+    --entitlements QuickLookMD/LectorMDQL.entitlements "$QL_BUNDLE"
 
-# Reiniciar el daemon de Quick Look para que detecte el nuevo plugin
-qlmanage -r 2>/dev/null || true
-qlmanage -r cache 2>/dev/null || true
+# La app principal sigue sin sandbox
+log "Firmando app (sin sandbox)..."
+codesign --force --timestamp=none --sign "$SIGN_IDENTITY" "$APP"
 
-# ── 6. quitar cuarentena (permite ejecutar sin aviso de Gatekeeper) ───────────
+codesign --verify --strict --deep "$APP" || die "La firma no verifica"
+
+# ── 5. quitar cuarentena (permite ejecutar sin aviso de Gatekeeper) ───────────
 xattr -rd com.apple.quarantine "$APP" 2>/dev/null || true
 
 # Si está instalada en ~/Applications, actualizar (rm primero para no anidar)
+# y usar esa copia; si no, usar la de .build
+LS_REGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 INSTALLED="$HOME/Applications/$APP_NAME.app"
+RUN_APP="$(pwd)/$APP"
 if [ -d "$INSTALLED" ]; then
     rm -rf "$INSTALLED"
     cp -R "$APP" "$INSTALLED"
     xattr -rd com.apple.quarantine "$INSTALLED" 2>/dev/null || true
-    "$LS_REGISTER" -f "$INSTALLED" 2>/dev/null || true
-    qlmanage -r 2>/dev/null || true
+    RUN_APP="$INSTALLED"
+    # Una sola copia registrada: con dos .appex del mismo bundle id,
+    # PlugInKit puede quedarse con la de .build
+    pluginkit -r "$(pwd)/$QL_BUNDLE" 2>/dev/null || true
+    "$LS_REGISTER" -u "$(pwd)/$APP" 2>/dev/null || true
+fi
+
+# ── 6. registrar app + extensión y reiniciar Vista Rápida ────────────────────
+log "Registrando con Launch Services y PlugInKit..."
+"$LS_REGISTER" -f "$RUN_APP" 2>/dev/null || warn "lsregister falló (el doble click puede requerir reinstalación manual)"
+pluginkit -a "$RUN_APP/Contents/PlugIns/$QL_NAME.appex" 2>/dev/null || warn "pluginkit -a falló"
+
+qlmanage -r >/dev/null 2>&1 || true
+qlmanage -r cache >/dev/null 2>&1 || true
+
+# "+" = activada, "-" = desactivada por el usuario, " " = default (activada)
+QL_STATUS=$(pluginkit -m -p com.apple.quicklook.preview -i "$QL_BUNDLE_ID" 2>/dev/null || true)
+if [ -z "$QL_STATUS" ]; then
+    warn "La extensión de Vista Rápida no aparece en PlugInKit (ver README → Vista Rápida)"
+elif [ "${QL_STATUS:0:1}" = "-" ]; then
+    warn "La extensión de Vista Rápida está desactivada. Activala en Ajustes del Sistema →"
+    warn "General → Ítems de inicio y extensiones → Vista rápida, o con:"
+    warn "  pluginkit -e use -i $QL_BUNDLE_ID"
+else
+    log "Vista Rápida registrada: $(echo "$QL_STATUS" | xargs)"
 fi
 
 # ── 7. archivo de prueba ─────────────────────────────────────────────────────
@@ -239,6 +256,16 @@ Párrafo con **negrita**, _cursiva_, ~~tachado~~ e `código inline`.
 func saludo(_ nombre: String) -> String {
     return "Hola, \(nombre)!"
 }
+```
+
+## Diagrama
+
+```mermaid
+graph LR
+    A[archivo.md] --> B(MarkdownRenderer)
+    B --> C{HTMLTemplate}
+    C --> D[LectorMD.app]
+    C --> E[Vista Rápida]
 ```
 
 ## Lista de tareas
@@ -263,18 +290,17 @@ func saludo(_ nombre: String) -> String {
 MDEOF
 
 # ── listo ─────────────────────────────────────────────────────────────────────
-ABS_APP="$(pwd)/$APP"
-
 echo ""
-echo -e "${GRN}✓ Build exitoso:${NC} $ABS_APP"
+echo -e "${GRN}✓ Build exitoso:${NC} $RUN_APP"
 echo ""
 
 # Abrir el archivo de prueba directamente
 log "Abriendo archivo de prueba..."
-open -a "$ABS_APP" "$TEST_MD"
+open -a "$RUN_APP" "$TEST_MD"
 
 echo ""
-echo "  Abrir cualquier archivo:  open -a \"$ABS_APP\" archivo.md"
+echo "  Abrir cualquier archivo:  open -a \"$RUN_APP\" archivo.md"
+echo "  Vista Rápida:             qlmanage -p $TEST_MD  (o barra espaciadora en Finder)"
 echo ""
 echo "  Para doble-click en Finder:"
 echo "  1. Copiá la app a ~/Applications/"

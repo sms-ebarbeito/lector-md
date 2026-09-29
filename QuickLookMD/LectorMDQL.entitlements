@@ -4,5 +4,11 @@
 <dict>
     <key>com.apple.security.app-sandbox</key>
     <true/>
+    <!-- WKWebView dentro del sandbox: sin esto los procesos WebContent, GPU y
+         Networking de WebKit abortan al arrancar ("Application does not have
+         permission to communicate with network resources"), aunque el HTML y
+         los .js sean locales. -->
+    <key>com.apple.security.network.client</key>
+    <true/>
 </dict>
 </plist>
