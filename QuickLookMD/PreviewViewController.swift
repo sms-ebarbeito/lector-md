@@ -15,6 +15,7 @@ class PreviewViewController: NSViewController, QLPreviewingController, WKNavigat
         view = webView
     }
 
+    // Quick Look lo llama una sola vez, en el main thread
     func preparePreviewOfFile(at url: URL, completionHandler: @escaping (Error?) -> Void) {
         let text: String
         do {
@@ -24,14 +25,17 @@ class PreviewViewController: NSViewController, QLPreviewingController, WKNavigat
             completionHandler(error)
             return
         }
-        DispatchQueue.main.async { [self] in
-            finish(nil)
-            pendingCompletion = completionHandler
-            let isDark = view.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            let html = HTMLTemplate.build(body: MarkdownRenderer().render(text), isDark: isDark)
-            // Resources del .appex: ahí están highlight.min.js y mermaid.min.js
-            let base = Bundle(for: PreviewViewController.self).resourceURL
-            webView.loadHTMLString(html, baseURL: base)
+        pendingCompletion = completionHandler
+        let isDark = view.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        let html = HTMLTemplate.build(body: MarkdownRenderer().render(text), isDark: isDark)
+        // Resources del .appex: ahí están highlight.min.js y mermaid.min.js
+        let base = Bundle(for: PreviewViewController.self).resourceURL
+        webView.loadHTMLString(html, baseURL: base)
+
+        // didFinish espera todas las imágenes (también las remotas): no dejar a
+        // Quick Look con el spinner si alguna tarda; el contenido sigue cargando
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+            self?.finish(nil)
         }
     }
 
@@ -52,8 +56,26 @@ class PreviewViewController: NSViewController, QLPreviewingController, WKNavigat
         finish(CocoaError(.fileReadUnknown))
     }
 
+    // Links: solo anclas dentro del documento (#titulo). Cualquier otro link
+    // reemplazaría la vista previa por otra página, sin forma de volver.
+    func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
+                 decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        guard navigationAction.navigationType == .linkActivated else {
+            decisionHandler(.allow)
+            return
+        }
+        let target = navigationAction.request.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: true) }
+        let current = webView.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: true) }
+        var targetDoc = target, currentDoc = current
+        targetDoc?.fragment = nil
+        currentDoc?.fragment = nil
+        let sameDocument = target?.fragment != nil && targetDoc != nil && targetDoc == currentDoc
+        decisionHandler(sameDocument ? .allow : .cancel)
+    }
+
     private func finish(_ error: Error?) {
-        pendingCompletion?(error)
+        let completion = pendingCompletion
         pendingCompletion = nil
+        completion?(error)
     }
 }

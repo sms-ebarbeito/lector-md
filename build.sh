@@ -87,6 +87,7 @@ cp LectorMD/Resources/mermaid.min.js   "$QL_RESOURCES/"
 # Info.plist del .appex: una sola fuente (también la usa el proyecto Xcode)
 cp QuickLookMD/ExtInfo.plist "$QL_BUNDLE/Contents/Info.plist"
 plutil -replace CFBundleShortVersionString -string "$VERSION" "$QL_BUNDLE/Contents/Info.plist"
+plutil -replace CFBundleVersion -string "$VERSION" "$QL_BUNDLE/Contents/Info.plist"
 plutil -replace LSMinimumSystemVersion -string "$MACOS_MIN" "$QL_BUNDLE/Contents/Info.plist"
 
 # ── 3. compilar Swift ─────────────────────────────────────────────────────────
@@ -172,9 +173,12 @@ printf 'APPL????' > "$CONTENTS/PkgInfo"
 # ── 4. firma, de adentro hacia afuera (sin --deep) ───────────────────────────
 # Identidad: SIGN_IDENTITY del entorno; si no, el certificado "Apple Development"
 # del llavero (el gratuito de cualquier Apple ID); si no hay, ad-hoc.
+SIGN_AUTO=0
 if [ -z "${SIGN_IDENTITY:-}" ]; then
+    SIGN_AUTO=1
+    # Sin "exit" en awk: con pipefail, un SIGPIPE en security abortaría el script
     SIGN_IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null \
-        | awk '/"Apple Development: / { print $2; exit }')
+        | awk '/"Apple Development: / && !found { print $2; found = 1 }') || true
     if [ -z "$SIGN_IDENTITY" ]; then
         SIGN_IDENTITY="-"
         warn "No hay certificado \"Apple Development\" en el llavero."
@@ -186,17 +190,26 @@ if [ "$SIGN_IDENTITY" = "-" ]; then
     warn "Firmando ad-hoc (sin TeamIdentifier). Si más adelante firmás con un certificado,"
     warn "macOS va a pedir una vez que confirmes el cambio de firma de la extensión."
 else
-    log "Identidad de firma: $(security find-identity -v -p codesigning | grep -F "$SIGN_IDENTITY" | sed -E 's/.*"(.*)"/\1/' | head -1)"
+    log "Identidad de firma: $(security find-identity -v -p codesigning 2>/dev/null | grep -F "$SIGN_IDENTITY" | sed -E 's/.*"(.*)"/\1/' | head -1 || true)"
 fi
 
-# La extensión de Vista Rápida tiene que correr con App Sandbox (si no, PlugInKit no la carga)
-log "Firmando extensión Quick Look (con sandbox)..."
-codesign --force --timestamp=none --sign "$SIGN_IDENTITY" \
-    --entitlements QuickLookMD/LectorMDQL.entitlements "$QL_BUNDLE"
+# Primero la extensión de Vista Rápida, con App Sandbox (sin sandbox PlugInKit la
+# rechaza: "plug-ins must be sandbox"); después la app principal, sin sandbox.
+sign_bundle() {
+    log "Firmando extensión Quick Look (con sandbox)..."
+    codesign --force --timestamp=none --sign "$1" \
+        --entitlements QuickLookMD/LectorMDQL.entitlements "$QL_BUNDLE" || return 1
+    log "Firmando app (sin sandbox)..."
+    codesign --force --timestamp=none --sign "$1" "$APP" || return 1
+}
 
-# La app principal sigue sin sandbox
-log "Firmando app (sin sandbox)..."
-codesign --force --timestamp=none --sign "$SIGN_IDENTITY" "$APP"
+if ! sign_bundle "$SIGN_IDENTITY"; then
+    # p. ej. llavero bloqueado en una sesión SSH: el certificado aparece pero no se puede usar
+    [ "$SIGN_AUTO" = 1 ] && [ "$SIGN_IDENTITY" != "-" ] || die "No se pudo firmar con \"$SIGN_IDENTITY\""
+    warn "No se pudo firmar con el certificado (¿llavero bloqueado?). Firmando ad-hoc."
+    SIGN_IDENTITY="-"
+    sign_bundle - || die "No se pudo firmar ad-hoc"
+fi
 
 codesign --verify --strict --deep "$APP" || die "La firma no verifica"
 

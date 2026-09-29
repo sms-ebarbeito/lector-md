@@ -70,7 +70,7 @@ Tamaño default: ancho 860px, alto = 90% del alto total de pantalla (`frame.heig
 
 ## Vista Rápida (`QuickLookMD/`)
 
-`LectorMDQL.appex` es una Quick Look Preview Extension (`com.apple.quicklook.preview`, `QLIsDataBasedPreview = false`): `PreviewViewController` (`QLPreviewingController`) renderiza con el mismo `MarkdownRenderer` + `HTMLTemplate` en un `WKWebView`, con `baseURL` = Resources del `.appex` (ahí van `highlight.min.js` y `mermaid.min.js`). Llama al `completionHandler` recién en `didFinish` (o con error si falla la carga o muere el WebContent → Quick Look cae al preview de texto de Apple).
+`LectorMDQL.appex` es una Quick Look Preview Extension (`com.apple.quicklook.preview`, `QLIsDataBasedPreview = false`): `PreviewViewController` (`QLPreviewingController`) renderiza con el mismo `MarkdownRenderer` + `HTMLTemplate` en un `WKWebView`, con `baseURL` = Resources del `.appex` (ahí van `highlight.min.js` y `mermaid.min.js`). Llama al `completionHandler` en `didFinish` o a los 2 s, lo que pase primero, porque `didFinish` espera también las imágenes remotas. Si falla la carga o muere el WebContent, lo llama con error y Quick Look cae al preview de texto de Apple. Los links que salen del documento se cancelan; las anclas `#titulo` funcionan.
 
 - `ExtInfo.plist` es el Info.plist del `.appex` tanto para `build.sh` como para el proyecto Xcode.
 - La extensión **tiene que** tener App Sandbox (`LectorMDQL.entitlements`). Dentro del sandbox, WKWebView necesita `com.apple.security.network.client`: sin eso WebContent/GPU/Networking abortan con "Application does not have permission to communicate with network resources".
@@ -79,7 +79,7 @@ Tamaño default: ancho 860px, alto = 90% del alto total de pantalla (`frame.heig
 
 ## Convenciones
 
-- La app principal va sin sandbox (la firma ad-hoc + WKWebView no funciona bien con sandbox habilitado). La extensión de Vista Rápida sí va con sandbox (obligatorio)
+- `build.sh` firma la app principal sin sandbox. La extensión de Vista Rápida sí va con sandbox (obligatorio). Con sandbox, WKWebView necesita `com.apple.security.network.client` (verificado en la extensión). Ojo: el target de la app en el proyecto Xcode todavía usa `LectorMD/LectorMD.entitlements` (sandbox sin `network.client`), pero ese no es el build oficial
 - `WeakScriptHandler` wrappea el Coordinator para evitar retain cycle con `WKUserContentController`
 - `diagramWindows: [NSWindow]` en el Coordinator mantiene referencias fuertes a las ventanas de diagrama para que no se liberen prematuramente
 - No usar `setFrameAutosaveName` — interfiere con el sizing manual y restaura frames pequeños de sesiones anteriores
