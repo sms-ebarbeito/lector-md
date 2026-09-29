@@ -36,6 +36,7 @@ SOURCES=(
   LectorMD/MarkdownWebView.swift
   LectorMD/MarkdownRenderer.swift
   LectorMD/HTMLTemplate.swift
+  LectorMD/HTMLSafety.swift
 )
 
 # ── 1. bundle skeleton ────────────────────────────────────────────────────────
@@ -79,6 +80,7 @@ swiftc \
   QuickLookMD/PreviewViewController.swift \
   LectorMD/MarkdownRenderer.swift \
   LectorMD/HTMLTemplate.swift \
+  LectorMD/HTMLSafety.swift \
   -o "$QL_MACOS/$QL_NAME"
 
 cp LectorMD/Resources/highlight.min.js "$QL_RESOURCES/"

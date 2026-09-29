@@ -29,13 +29,13 @@ Se procesa línea por línea con un índice `i`. Cada tipo de bloque consume una
 Detector: línea empieza con ``` o ~~~
 ```
 
-- Se extrae la **fence** (los 3 primeros chars) y el **lang** (resto del primer renglón, trimmeado).
+- Se extrae la **fence** (los 3 primeros chars) y el **lang**: como en CommonMark, la primera palabra del resto del primer renglón.
 - Se acumulan líneas hasta encontrar otra que empiece con la misma fence → fin del bloque.
-- **Si `lang == "mermaid"`**: se escapan solo `&` → `&amp;` y `<` → `&lt;`, luego se emite:
+- **Si `lang` es `mermaid`** (sin importar mayúsculas): el contenido se escapa como texto (`HTMLSafety.escapeText`: `&`, `<`, `>`); Mermaid lee el `textContent`, que queda igual al original. Se emite:
   ```html
   <div class="mermaid">...contenido...</div>
   ```
-- **Cualquier otro lang**: se escapa el contenido completo con `escapeHTML()` (también `>` y `"`) y se emite:
+- **Cualquier otro lang**: el contenido se escapa como texto y el lang como atributo (`HTMLSafety.escapeAttribute`), y se emite:
   ```html
   <pre><code class="language-LANG">...contenido...</code></pre>
   ```
@@ -49,7 +49,7 @@ Detector: línea empieza con 1–6 `#` seguidos de espacio (o fin de línea)
 
 - Se cuenta la cantidad de `#` → nivel (1–6).
 - El texto es el resto, trimmeado. Se eliminan `#` al final (trailing `#`).
-- Se genera un `id` con `slugify(texto)`.
+- Se genera un `id` con `slugify(texto)` (y se escapa como atributo, aunque `slugify` ya solo deja letras, números, `-` y `_`).
 - El texto pasa por `renderInline()`.
 - Emite: `<hN id="SLUG">TEXTO</hN>`
 
@@ -78,8 +78,7 @@ Detector: línea empieza con `>`
 ```
 
 - Se acumulan líneas mientras:
-  - Empiecen con `> ` (se quitan los 2 primeros chars)
-  - Sean exactamente `>` (se añade línea vacía)
+  - Empiecen con `>` (se quita el `>` y un espacio, si hay: `> texto` y `>texto` valen igual)
   - Estén vacías y la siguiente empiece con `>`
 - El contenido acumulado se renderiza **recursivamente** con `renderBlocks()`.
 - Emite: `<blockquote>CONTENIDO</blockquote>`
@@ -141,33 +140,35 @@ Emite: `<p>LÍNEA1\nLÍNEA2...</p>`
 
 ### Renderizado inline (`renderInline`)
 
-Transforma el texto dentro de bloques. Usa **4 pasadas** para evitar bugs de índices:
+Transforma el texto dentro de bloques. Usa **5 pasadas** para evitar bugs de índices. Lo ya armado se guarda aparte y en el texto queda un **sentinel** `\u{E000}N\u{E001}` (N es el índice): así las pasadas siguientes no lo tocan. Si el `.md` trae esos caracteres del área de uso privado, se reemplazan antes por `U+FFFD`.
 
 #### Pasada 1 — Extraer código inline
 
-Se buscan pares de backticks `` ` `` manualmente (no con regex).
+Se buscan pares de backticks `` ` `` manualmente (no con regex). El contenido se escapa como texto y queda como sentinel de `<code>CONTENIDO</code>`.
 
-- El contenido entre backticks se escapa con `escapeHTML()` y se guarda como `<code>CONTENIDO</code>`.
-- En el texto principal se reemplaza por un **sentinel**: `\u{E000}N\u{E001}` donde N es el índice.
-- Los caracteres `\u{E000}` y `\u{E001}` son del área de uso privado Unicode y nunca aparecen en texto real.
+#### Pasada 2 — Imágenes y links
 
-#### Pasada 2 — Escape HTML del texto restante
-
-Se recorre char a char. Dentro de sentinels se copia literal. Fuera:
-- `&` → `&amp;`
-- `<` → `&lt;`
-- `>` → `&gt;`
-
-#### Pasada 3 — Patrones inline (regex rebuild-based)
-
-Función `sub(input, pattern, replace)`: itera los matches, reconstruye el string concatenando partes no-match y reemplazos → sin aritmética de offsets, sin bugs.
-
-**Orden de aplicación** (crítico — más específico primero):
+Sobre el texto **sin escapar**, así cada valor se escapa una sola vez, al armar el atributo con `HTMLSafety.escapeAttribute` (`&`, `<`, `>`, `"`, `'`).
 
 | Patrón | Salida |
 |--------|--------|
-| `![alt](url "title")` | `<img src="url" alt="alt">` |
-| `[texto](url)` | `<a href="url">texto</a>` |
+| `![alt](url "title")` | `<img src="url" alt="alt" title="title">` (sentinel) |
+| `[texto](url 'title')` | `<a href="url" title="title">` + texto + `</a>` (las etiquetas como sentinels; el texto sigue en el flujo y le aplican los énfasis) |
+
+- El destino son palabras separadas por espacios, sin `)`. Después de un espacio, una palabra que empieza con `"` o `'` es el title, y las demás no llevan `[`. Las regex son posesivas: lineales aunque la línea sea enorme.
+- `href` y `src` pasan por `HTMLSafety.isSafeURL`: si el esquema es `javascript:`, `vbscript:` o `data:` (salvo `data:image/…` en una imagen), el Markdown queda como texto.
+- El `alt` y el `title` usan el texto plano de un código inline que tengan adentro.
+
+#### Pasada 3 — Escape del texto restante
+
+`HTMLSafety.escapeText`: `&` → `&amp;`, `<` → `&lt;`, `>` → `&gt;`. Los sentinels son solo dígitos, así que no cambian. Así el **HTML crudo del `.md` siempre sale como texto**.
+
+#### Pasada 4 — Énfasis (regex rebuild-based)
+
+Función `sub(input, pattern, replace)`: itera los matches, reconstruye el string concatenando partes no-match y reemplazos → sin aritmética de offsets, sin bugs.
+
+| Patrón | Salida |
+|--------|--------|
 | `***texto***` | `<strong><em>texto</em></strong>` |
 | `___texto___` | `<strong><em>texto</em></strong>` |
 | `**texto**` | `<strong>texto</strong>` |
@@ -178,9 +179,9 @@ Función `sub(input, pattern, replace)`: itera los matches, reconstruye el strin
 
 Los patrones `*` y `_` usan lookahead/lookbehind para no capturar `**` o `__`.
 
-#### Pasada 4 — Restaurar código inline
+#### Pasada 5 — Restaurar
 
-Se sustituyen los sentinels `\u{E000}N\u{E001}` por el HTML `<code>...</code>` generado en la pasada 1.
+Se sustituyen los sentinels por su HTML, en una sola pasada (lo restaurado no se vuelve a mirar).
 
 ---
 
@@ -195,9 +196,13 @@ texto → minúsculas → espacios por guiones → filtrar solo [a-z, 0-9, -, _]
 
 ---
 
-### `escapeHTML(text)`
+### `HTMLSafety` — escape y validaciones
 
-Escapa: `&` → `&amp;`, `<` → `&lt;`, `>` → `&gt;`, `"` → `&quot;`
+- `escapeText(text)`: `&` → `&amp;`, `<` → `&lt;`, `>` → `&gt;`. Para texto entre etiquetas.
+- `escapeAttribute(value)`: además `"` → `&quot;` y `'` → `&#39;`. Para todo valor de atributo (siempre entre comillas dobles).
+- Los dos recorren unicode scalars, no `Character`: una `"` seguida de un acento combinante es un solo `Character`, pero para el parser de HTML sigue siendo una comilla.
+- `isSafeURL(url, allowDataImage:)`: `false` para `javascript:`, `vbscript:` y `data:` (salvo `data:image/…` si `allowDataImage`). Ignora mayúsculas, espacios y controles, como el navegador.
+- `isSafeDiagramSVG(svg)`: valida el SVG que llega por el puente `diagramClick` (ver `CLAUDE.md`, *Seguridad*).
 
 ---
 
@@ -210,6 +215,7 @@ El fragmento HTML del renderer se inserta en:
 <html lang="es">
 <head>
   <meta charset="utf-8">
+  <!-- head: la Content-Security-Policy (HTMLTemplate.appHead en la app, la suya en la Vista Rápida) -->
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>/* CSS completo embebido */</style>
 </head>
@@ -265,7 +271,7 @@ Se incluye `mermaid.min.js` como archivo local. Configuración:
 ```js
 mermaid.initialize({
   startOnLoad: true,
-  securityLevel: 'loose',
+  securityLevel: 'strict',  // el default de Mermaid: sanea el SVG y los links, y apaga `click … call`
   theme: 'default'  // o 'dark'
 });
 ```

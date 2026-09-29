@@ -15,6 +15,7 @@ Visualizador nativo de Markdown para macOS. Renderiza `.md` directamente en una 
   - Enter navega a la siguiente ocurrencia; botones ↑ ↓ para avanzar/retroceder
   - Lista de títulos y subtítulos para navegación rápida
 - **Vista previa Quick Look** al presionar espacio en Finder
+- **Seguro con archivos ajenos**: nada de lo que trae un `.md` ejecuta JavaScript (ver [Seguridad](#seguridad))
 - Ventana redimensionable; se abre al 90% del alto de pantalla por defecto
 
 ## Requisitos
@@ -34,6 +35,12 @@ Para instalar en `~/Applications`:
 
 ```bash
 cp -R .build/LectorMD.app ~/Applications/
+```
+
+Tests de seguridad (escape del renderer, CSP y puente del diagrama, con WebKit de verdad):
+
+```bash
+bash test.sh
 ```
 
 Los builds siguientes actualizan `~/Applications` automáticamente si la app ya existe ahí,
@@ -99,6 +106,28 @@ Para ver por qué no carga:
 /usr/bin/log stream --predicate 'process == "LectorMDQL" OR process BEGINSWITH "com.apple.WebKit" OR subsystem == "com.apple.PlugInKit"'
 ```
 
+## Seguridad
+
+Un `.md` puede venir de cualquier lado, así que nada de lo que trae ejecuta JavaScript,
+ni en la app ni en la Vista Rápida:
+
+- **HTML crudo, como texto.** Un `<img>`, `<script>` o `<iframe>` escrito en el `.md` se
+  muestra tal cual, no se interpreta.
+- **Atributos escapados.** El texto alternativo y el título de imágenes y links, las URLs
+  y el lenguaje de los bloques de código se escapan (`&`, `<`, `>`, `"`, `'`).
+- **Links y imágenes con esquemas peligrosos** (`javascript:`, `vbscript:`, `data:` salvo
+  imágenes) se muestran como texto Markdown, sin link.
+- **Content-Security-Policy**: solo corren los scripts propios de LectorMD (highlight.js,
+  Mermaid y los de la plantilla, por hash). La app sí carga imágenes remotas; la Vista
+  Rápida no.
+- **Diagramas**: Mermaid corre en modo `strict`, y la ventana del diagrama solo acepta un
+  SVG sin scripts ni handlers y lo muestra con su propia CSP.
+
+Un link a una página web, si lo seguís, abre esa página dentro del visor (como siempre):
+es una página que elegiste abrir, no algo que ejecuta el `.md`.
+
+`Tests/ataque.md` junta todos los intentos de inyección; `bash test.sh` lo verifica.
+
 ## Estructura
 
 ```
@@ -108,9 +137,14 @@ LectorMD/
 ├── ContentView.swift        # Vista principal, SearchModel, SearchPanel, WindowFrameSaver
 ├── MarkdownWebView.swift    # WKWebView wrapper, visor de diagramas Mermaid
 ├── MarkdownRenderer.swift   # Parser/renderer Markdown → HTML (sin dependencias)
-├── HTMLTemplate.swift       # Template HTML completo: CSS, highlight.js, mermaid, JS de búsqueda
+├── HTMLTemplate.swift       # Template HTML completo: CSS, highlight.js, mermaid, JS de búsqueda, CSP, ventana del diagrama
+├── HTMLSafety.swift         # Escape de texto y atributos, esquemas de URL, validación del SVG del diagrama
 QuickLookMD/
 ├── PreviewViewController.swift  # Extensión de Vista Rápida (QLPreviewingController + WKWebView)
 ├── ExtInfo.plist                # Info.plist del .appex (com.apple.quicklook.preview)
 └── LectorMDQL.entitlements      # App Sandbox + network.client (necesario para WKWebView)
+Tests/
+├── SecurityTests.swift          # Tests de seguridad (bash test.sh)
+├── ataque.md                    # Todos los intentos de inyección
+└── normal.md                    # Documento normal: tiene que verse igual que siempre
 ```

@@ -13,12 +13,14 @@
 		AA0001000000200000000004 /* MarkdownWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0001000000100000000004 /* MarkdownWebView.swift */; };
 		AA0001000000200000000005 /* MarkdownRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0001000000100000000005 /* MarkdownRenderer.swift */; };
 		AA0001000000200000000006 /* HTMLTemplate.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0001000000100000000006 /* HTMLTemplate.swift */; };
+		AA000100000020000000000A /* HTMLSafety.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000100000010000000000A /* HTMLSafety.swift */; };
 		AA0001000000200000000007 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AA0001000000100000000007 /* Assets.xcassets */; };
 		AA0001000000200000000008 /* highlight.min.js in Resources */ = {isa = PBXBuildFile; fileRef = BB0001000000100000000003 /* highlight.min.js */; };
 		AA0001000000200000000009 /* mermaid.min.js in Resources */ = {isa = PBXBuildFile; fileRef = BB0001000000100000000004 /* mermaid.min.js */; };
 		BB0001000000200000000001 /* PreviewViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0001000000100000000001 /* PreviewViewController.swift */; };
 		BB0001000000200000000002 /* MarkdownRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0001000000100000000005 /* MarkdownRenderer.swift */; };
 		BB0001000000200000000003 /* HTMLTemplate.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0001000000100000000006 /* HTMLTemplate.swift */; };
+		BB0001000000200000000007 /* HTMLSafety.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000100000010000000000A /* HTMLSafety.swift */; };
 		BB0001000000200000000004 /* highlight.min.js in Resources */ = {isa = PBXBuildFile; fileRef = BB0001000000100000000003 /* highlight.min.js */; };
 		BB0001000000200000000005 /* mermaid.min.js in Resources */ = {isa = PBXBuildFile; fileRef = BB0001000000100000000004 /* mermaid.min.js */; };
 		BB0001000000200000000006 /* LectorMDQL.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = BB000100000000000000000F /* LectorMDQL.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -32,6 +34,7 @@
 		AA0001000000100000000004 /* MarkdownWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownWebView.swift; sourceTree = "<group>"; };
 		AA0001000000100000000005 /* MarkdownRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownRenderer.swift; sourceTree = "<group>"; };
 		AA0001000000100000000006 /* HTMLTemplate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTMLTemplate.swift; sourceTree = "<group>"; };
+		AA000100000010000000000A /* HTMLSafety.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTMLSafety.swift; sourceTree = "<group>"; };
 		AA0001000000100000000007 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		AA0001000000100000000008 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		AA0001000000100000000009 /* LectorMD.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = LectorMD.entitlements; sourceTree = "<group>"; };
@@ -112,6 +115,7 @@
 				AA0001000000100000000004 /* MarkdownWebView.swift */,
 				AA0001000000100000000005 /* MarkdownRenderer.swift */,
 				AA0001000000100000000006 /* HTMLTemplate.swift */,
+				AA000100000010000000000A /* HTMLSafety.swift */,
 				AA0001000000100000000007 /* Assets.xcassets */,
 				BB0001000000050000000003 /* Resources */,
 				AA0001000000100000000008 /* Info.plist */,
@@ -256,6 +260,7 @@
 				AA0001000000200000000004 /* MarkdownWebView.swift in Sources */,
 				AA0001000000200000000005 /* MarkdownRenderer.swift in Sources */,
 				AA0001000000200000000006 /* HTMLTemplate.swift in Sources */,
+				AA000100000020000000000A /* HTMLSafety.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -266,6 +271,7 @@
 				BB0001000000200000000001 /* PreviewViewController.swift in Sources */,
 				BB0001000000200000000002 /* MarkdownRenderer.swift in Sources */,
 				BB0001000000200000000003 /* HTMLTemplate.swift in Sources */,
+				BB0001000000200000000007 /* HTMLSafety.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

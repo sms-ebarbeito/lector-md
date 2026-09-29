@@ -32,15 +32,15 @@ struct MarkdownRenderer {
                     codeLines.append(lines[i]); i += 1
                 }
                 if i < lines.count { i += 1 }
-                if lang.lowercased() == "mermaid" {
-                    // Escapamos solo & y < para que mermaid lea textContent correctamente
-                    let safe = codeLines.joined(separator: "\n")
-                        .replacingOccurrences(of: "&", with: "&amp;")
-                        .replacingOccurrences(of: "<", with: "&lt;")
+                // Como en CommonMark, el lenguaje es la primera palabra de la línea
+                let name = lang.split(whereSeparator: { $0 == " " || $0 == "\t" }).first.map(String.init) ?? ""
+                if name.lowercased() == "mermaid" {
+                    // Escapado como texto: mermaid lee el textContent, que queda igual al original
+                    let safe = HTMLSafety.escapeText(codeLines.joined(separator: "\n"))
                     out += "<div class=\"mermaid\">\(safe)</div>\n"
                 } else {
-                    let code = escapeHTML(codeLines.joined(separator: "\n"))
-                    let cls = lang.isEmpty ? "" : " class=\"language-\(escapeHTML(lang))\""
+                    let code = HTMLSafety.escapeText(codeLines.joined(separator: "\n"))
+                    let cls = name.isEmpty ? "" : " class=\"language-\(HTMLSafety.escapeAttribute(name))\""
                     out += "<pre><code\(cls)>\(code)</code></pre>\n"
                 }
                 continue
@@ -48,7 +48,7 @@ struct MarkdownRenderer {
 
             // ATX heading
             if let h = parseATXHeading(trimmed) {
-                let id = Self.slugify(h.text)
+                let id = HTMLSafety.escapeAttribute(Self.slugify(h.text))
                 out += "<h\(h.level) id=\"\(id)\">\(renderInline(h.text))</h\(h.level)>\n"
                 i += 1; continue
             }
@@ -57,12 +57,12 @@ struct MarkdownRenderer {
             if i + 1 < lines.count {
                 let next = lines[i + 1].trimmingCharacters(in: .whitespaces)
                 if !trimmed.isEmpty && next.count >= 2 && next.allSatisfy({ $0 == "=" }) {
-                    let id = Self.slugify(trimmed)
+                    let id = HTMLSafety.escapeAttribute(Self.slugify(trimmed))
                     out += "<h1 id=\"\(id)\">\(renderInline(trimmed))</h1>\n"
                     i += 2; continue
                 }
                 if !trimmed.isEmpty && next.count >= 2 && next.allSatisfy({ $0 == "-" }) && !isHRule(trimmed) {
-                    let id = Self.slugify(trimmed)
+                    let id = HTMLSafety.escapeAttribute(Self.slugify(trimmed))
                     out += "<h2 id=\"\(id)\">\(renderInline(trimmed))</h2>\n"
                     i += 2; continue
                 }
@@ -78,8 +78,13 @@ struct MarkdownRenderer {
                 var quoteLines: [String] = []
                 while i < lines.count {
                     let t = lines[i].trimmingCharacters(in: .whitespaces)
-                    if t.hasPrefix("> ") { quoteLines.append(String(t.dropFirst(2))); i += 1 }
-                    else if t == ">" { quoteLines.append(""); i += 1 }
+                    if t.hasPrefix(">") {
+                        // "> texto" y ">texto": se saca el ">" y un espacio, si hay. Antes ">texto"
+                        // no se consumía y el while de afuera no terminaba nunca
+                        var rest = t.dropFirst()
+                        if rest.hasPrefix(" ") { rest = rest.dropFirst() }
+                        quoteLines.append(String(rest)); i += 1
+                    }
                     else if t.isEmpty && i + 1 < lines.count && lines[i + 1].trimmingCharacters(in: .whitespaces).hasPrefix(">") {
                         quoteLines.append(""); i += 1
                     } else { break }
@@ -161,12 +166,29 @@ struct MarkdownRenderer {
     // MARK: - Inline rendering
 
     func renderInline(_ input: String) -> String {
-        // Sentinels from Unicode private-use area; won't appear in any text
+        // Sentinels from Unicode private-use area. Si el .md los trae, se reemplazan: si no,
+        // un .md armado podría hacer que un fragmento se restaure dentro de un atributo
         let S: Character = "\u{E000}"
         let E: Character = "\u{E001}"
+        var clean = String.UnicodeScalarView()
+        for u in input.unicodeScalars { clean.append(u == "\u{E000}" || u == "\u{E001}" ? "\u{FFFD}" : u) }
+        let input = String(clean)
+
+        // Fragmentos ya armados (HTML seguro) que el texto referencia con un sentinel, y su
+        // texto plano, para usarlo en un alt o un title
+        var spans: [String] = []
+        var plainText: [String] = []
+        func hold(_ html: String, plain: String = "") -> String {
+            spans.append(html)
+            plainText.append(plain)
+            return "\(S)\(spans.count - 1)\(E)"
+        }
+        func plain(_ s: String) -> String {
+            sub(s, Self.sentinelPattern) { g in Int(g[1]).map { plainText[$0] } ?? "" }
+        }
+        func attr(_ s: String) -> String { HTMLSafety.escapeAttribute(s) }
 
         // Pass 1 – extract inline code spans with manual scan
-        var spans: [String] = []
         var scanned = ""
         var idx = input.startIndex
         while idx < input.endIndex {
@@ -175,9 +197,7 @@ struct MarkdownRenderer {
                 let j = input.index(after: idx)
                 if j < input.endIndex, let closeIdx = input[j...].firstIndex(of: "`") {
                     let code = String(input[j..<closeIdx])
-                    let n = spans.count
-                    scanned += "\(S)\(n)\(E)"
-                    spans.append("<code>\(escapeHTML(code))</code>")
+                    scanned += hold("<code>\(HTMLSafety.escapeText(code))</code>", plain: code)
                     idx = input.index(after: closeIdx)
                     continue
                 }
@@ -186,29 +206,30 @@ struct MarkdownRenderer {
             idx = input.index(after: idx)
         }
 
-        // Pass 2 – HTML-escape, preserving sentinel regions
-        var text = ""
-        var inSentinel = false
-        for ch in scanned {
-            if ch == S { inSentinel = true; text.append(ch); continue }
-            if ch == E { inSentinel = false; text.append(ch); continue }
-            if inSentinel { text.append(ch); continue }
-            switch ch {
-            case "&": text += "&amp;"
-            case "<": text += "&lt;"
-            case ">": text += "&gt;"
-            default: text.append(ch)
-            }
+        // Pass 2 – images and links, sobre el texto sin escapar: cada valor se escapa una
+        // sola vez, al armar el atributo. Quedan como sentinels, así los patrones de énfasis
+        // no tocan sus atributos (un _ en una URL ya no se vuelve <em>). Si el esquema es
+        // peligroso, el Markdown queda como texto. Images before links.
+        var text = sub(scanned, Self.imagePattern) { g in
+            guard HTMLSafety.isSafeURL(g[2], allowDataImage: true) else { return g[0] }
+            let title = g[3] + g[4]
+            var tag = "<img src=\"\(attr(g[2]))\" alt=\"\(attr(plain(g[1])))\""
+            if !title.isEmpty { tag += " title=\"\(attr(plain(title)))\"" }
+            return hold(tag + ">", plain: plain(g[1]))
+        }
+        text = sub(text, Self.linkPattern) { g in
+            guard HTMLSafety.isSafeURL(g[2]) else { return g[0] }
+            let title = g[3] + g[4]
+            var open = "<a href=\"\(attr(g[2]))\""
+            if !title.isEmpty { open += " title=\"\(attr(plain(title)))\"" }
+            // El texto del link sigue en el flujo: se escapa y le aplican los énfasis
+            return hold(open + ">") + g[1] + hold("</a>")
         }
 
-        // Pass 3 – inline patterns (rebuild-based replace, no offset bugs)
-        // Images before links
-        text = sub(text, #"!\[([^\]]*)\]\(([^)"]+?)(?:\s+"[^"]*")?\)"#) { g in
-            "<img src=\"\(g[2])\" alt=\"\(g[1])\">"
-        }
-        text = sub(text, #"\[([^\]]+)\]\(([^)]+)\)"#) { g in
-            "<a href=\"\(g[2])\">\(g[1])</a>"
-        }
+        // Pass 3 – HTML-escape (los sentinels son solo dígitos: no cambian)
+        text = HTMLSafety.escapeText(text)
+
+        // Pass 4 – emphasis (rebuild-based replace, no offset bugs)
         // Bold+italic before bold/italic
         text = sub(text, #"\*\*\*(.+?)\*\*\*"#) { "<strong><em>\($0[1])</em></strong>" }
         text = sub(text, #"___(.+?)___"#)         { "<strong><em>\($0[1])</em></strong>" }
@@ -218,13 +239,21 @@ struct MarkdownRenderer {
         text = sub(text, #"(?<!_)_(?!_)([^_\n]+?)(?<!_)_(?!_)"#)      { "<em>\($0[1])</em>" }
         text = sub(text, #"~~(.+?)~~"#)           { "<del>\($0[1])</del>" }
 
-        // Pass 4 – restore code spans
-        for (n, span) in spans.enumerated() {
-            text = text.replacingOccurrences(of: "\(S)\(n)\(E)", with: span)
-        }
-
-        return text
+        // Pass 5 – restore spans, en una sola pasada (lo restaurado no se vuelve a mirar)
+        return sub(text, Self.sentinelPattern) { g in Int(g[1]).map { spans[$0] } ?? "" }
     }
+
+    private static let sentinelPattern = "\u{E000}([0-9]+)\u{E001}"
+    // (destino "title") de ![alt](…) y [texto](…). El destino son palabras separadas por
+    // espacios, sin ")" ni un sentinel (un code span no forma parte de una URL). Después de
+    // un espacio, una palabra que empieza con " o ' es el title, y las demás no llevan "[":
+    // así un "[x](" más adelante en la línea no alarga el destino. Todo posesivo, sin
+    // backtracking: lineal aunque la línea tenga miles de espacios.
+    private static let destinationPattern =
+        #"\(\s*+([^\s)\x{E000}]++(?:\s++[^\s)"'\[\x{E000}][^\s)\[\x{E000}]*+)*+)"#
+        + #"(?:\s++(?:"([^"]*+)"|'([^']*+)'))?\s*+\)"#
+    private static let imagePattern = #"!\[([^\]]*+)\]"# + destinationPattern
+    private static let linkPattern = #"\[([^\]]++)\]"# + destinationPattern
 
     // MARK: - Table rendering
 
@@ -327,13 +356,6 @@ struct MarkdownRenderer {
         let after = line.index(dotIdx, offsetBy: 2)
         guard after <= line.endIndex else { return line }
         return String(line[after...])
-    }
-
-    func escapeHTML(_ text: String) -> String {
-        text.replacingOccurrences(of: "&", with: "&amp;")
-            .replacingOccurrences(of: "<", with: "&lt;")
-            .replacingOccurrences(of: ">", with: "&gt;")
-            .replacingOccurrences(of: "\"", with: "&quot;")
     }
 
     // Rebuild-based regex replace: no offset arithmetic, no bugs
