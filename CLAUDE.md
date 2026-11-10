@@ -82,7 +82,7 @@ Tamaño default: ancho 860px, alto = 90% del alto total de pantalla (`frame.heig
 - Las imágenes locales no se ven en la vista previa: las relativas se resuelven contra el `baseURL` (Resources del `.appex`) y las absolutas las bloquea el sandbox. Las `data:` sí se ven.
 - `ExtInfo.plist` es el Info.plist del `.appex` tanto para `build.sh` como para el proyecto Xcode.
 - La extensión **tiene que** tener App Sandbox (`LectorMDQL.entitlements`). Dentro del sandbox, WKWebView necesita `com.apple.security.network.client`: sin eso WebContent/GPU/Networking abortan con "Application does not have permission to communicate with network resources".
-- Firma de adentro hacia afuera, sin `--deep`: primero el `.appex` con sus entitlements, después la app. Identidad: `SIGN_IDENTITY` o el primer "Apple Development" del llavero; si no hay, ad-hoc. Al cambiar de identidad (p. ej. ad-hoc → Apple Development), macOS pregunta una vez "differs from previously opened versions" por el contenedor del sandbox de la extensión.
+- Firma de adentro hacia afuera, sin `--deep`: primero el `.appex` con sus entitlements, después la app. Identidad: `LECTORMD_SIGN_IDENTITY` del entorno, o si no está, el primer "Apple Development" del llavero; ad-hoc solo como último recurso (con warning, porque Gatekeeper puede marcar una app ad-hoc como malware al actualizar macOS — issue #7). Al cambiar de identidad (p. ej. ad-hoc → Apple Development), macOS pregunta una vez "differs from previously opened versions" por el contenedor del sandbox de la extensión.
 - `build.sh` registra solo una copia (la de `~/Applications` si existe) para que PlugInKit no elija la de `.build`.
 
 ## Seguridad (#5)

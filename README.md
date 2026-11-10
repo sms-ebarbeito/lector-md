@@ -68,12 +68,17 @@ verlas"*. Las imágenes embebidas (`data:`) se ven. La app carga todo, como siem
   bloquea toda carga remota (ver arriba).
 - **La app** sigue sin sandbox.
 - **Identidad:** si en el llavero hay un certificado **"Apple Development"** (el
-  gratuito de cualquier Apple ID, no hace falta la cuenta paga), lo usa. Si no hay,
-  firma ad-hoc y avisa. Para forzar otra identidad: `SIGN_IDENTITY="..." bash build.sh`
-  (`SIGN_IDENTITY=-` fuerza ad-hoc).
+  gratuito de cualquier Apple ID, no hace falta la cuenta paga), lo usa. Si no hay
+  ninguno, firma ad-hoc como último recurso y avisa. Para forzar otra identidad:
+  `LECTORMD_SIGN_IDENTITY="..." bash build.sh` (`LECTORMD_SIGN_IDENTITY=-` fuerza ad-hoc).
 
-  En macOS 27 la vista previa también carga con ad-hoc; el certificado se usa
-  cuando está porque da una identidad estable (TeamIdentifier) entre builds.
+  **Evitá ad-hoc en lo posible.** Una app firmada ad-hoc no tiene `TeamIdentifier`:
+  macOS no puede distinguirla de una build distinta entre actualizaciones del sistema,
+  y Gatekeeper puede decidir que es malware y borrarla de `~/Applications` al
+  actualizar macOS (pasó yendo de 27.0 a 27.2.1 — ver issue #7). Con un certificado
+  "Apple Development" la app queda con una identidad estable y no debería volver a
+  pasar. Al final del build, `build.sh` muestra el `Authority`/`TeamIdentifier` con el
+  que quedó firmada cada parte; "TeamIdentifier=not set" es la señal de que firmó ad-hoc.
 
 Después de firmar, el script registra la app (`lsregister -f`) y la extensión
 (`pluginkit -a`), y reinicia Vista Rápida (`qlmanage -r`, `qlmanage -r cache`).

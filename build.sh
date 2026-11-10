@@ -173,10 +173,11 @@ PLIST
 printf 'APPL????' > "$CONTENTS/PkgInfo"
 
 # ── 4. firma, de adentro hacia afuera (sin --deep) ───────────────────────────
-# Identidad: SIGN_IDENTITY del entorno; si no, el certificado "Apple Development"
-# del llavero (el gratuito de cualquier Apple ID); si no hay, ad-hoc.
+# Identidad: LECTORMD_SIGN_IDENTITY del entorno; si no, el certificado
+# "Apple Development" del llavero (el gratuito de cualquier Apple ID); si no
+# hay ninguno de los dos, ad-hoc como último recurso.
 SIGN_AUTO=0
-if [ -z "${SIGN_IDENTITY:-}" ]; then
+if [ -z "${LECTORMD_SIGN_IDENTITY:-}" ]; then
     SIGN_AUTO=1
     # Sin "exit" en awk: con pipefail, un SIGPIPE en security abortaría el script
     SIGN_IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null \
@@ -187,9 +188,13 @@ if [ -z "${SIGN_IDENTITY:-}" ]; then
         warn "Para crearlo (gratis, con cualquier Apple ID): Xcode → Settings → Accounts →"
         warn "(tu Apple ID) → Manage Certificates → + → Apple Development."
     fi
+else
+    SIGN_IDENTITY="$LECTORMD_SIGN_IDENTITY"
 fi
 if [ "$SIGN_IDENTITY" = "-" ]; then
-    warn "Firmando ad-hoc (sin TeamIdentifier). Si más adelante firmás con un certificado,"
+    warn "Firmando AD-HOC (sin TeamIdentifier), como último recurso. macOS puede marcar la"
+    warn "app como malware y borrarla al actualizar de versión (ver issue #7) — conseguí un"
+    warn "certificado \"Apple Development\" en cuanto puedas. Si más adelante firmás con uno,"
     warn "macOS va a pedir una vez que confirmes el cambio de firma de la extensión."
 else
     log "Identidad de firma: $(security find-identity -v -p codesigning 2>/dev/null | grep -F "$SIGN_IDENTITY" | sed -E 's/.*"(.*)"/\1/' | head -1 || true)"
@@ -213,7 +218,11 @@ if ! sign_bundle "$SIGN_IDENTITY"; then
     sign_bundle - || die "No se pudo firmar ad-hoc"
 fi
 
-codesign --verify --strict --deep "$APP" || die "La firma no verifica"
+codesign --verify --strict --deep "$QL_BUNDLE" || die "La firma de la extensión no verifica"
+codesign --verify --strict --deep "$APP" || die "La firma de la app no verifica"
+
+log "Extensión Quick Look: $(codesign -dvvv "$QL_BUNDLE" 2>&1 | grep -E '^(Authority|TeamIdentifier)' | paste -sd '|' - | sed 's/|/ · /g')"
+log "App: $(codesign -dvvv "$APP" 2>&1 | grep -E '^(Authority|TeamIdentifier)' | paste -sd '|' - | sed 's/|/ · /g')"
 
 # ── 5. quitar cuarentena (permite ejecutar sin aviso de Gatekeeper) ───────────
 xattr -rd com.apple.quarantine "$APP" 2>/dev/null || true
